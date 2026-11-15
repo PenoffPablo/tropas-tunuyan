@@ -415,8 +415,10 @@ create policy categorias_admin_delete on public.categorias
 
 create policy productos_lectura_publica on public.productos
   for select to anon using (activo);
+-- Usuarios autenticados SIN rol no ven nada (tienen permiso de tabla completo,
+-- incluidos costos): el catálogo público se consulta como anon.
 create policy productos_lectura_panel on public.productos
-  for select to authenticated using (activo or (select private.es_staff()));
+  for select to authenticated using ((select private.es_staff()));
 create policy productos_admin_insert on public.productos
   for insert to authenticated with check ((select private.es_admin()));
 create policy productos_admin_update on public.productos
@@ -428,8 +430,7 @@ create policy variantes_lectura_publica on public.variantes
   for select to anon
   using (exists (select 1 from public.productos p where p.id = producto_id and p.activo));
 create policy variantes_lectura_panel on public.variantes
-  for select to authenticated
-  using ((select private.es_staff()) or exists (select 1 from public.productos p where p.id = producto_id and p.activo));
+  for select to authenticated using ((select private.es_staff()));
 create policy variantes_admin_insert on public.variantes
   for insert to authenticated with check ((select private.es_admin()));
 create policy variantes_admin_update on public.variantes

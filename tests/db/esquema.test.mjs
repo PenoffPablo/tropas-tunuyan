@@ -112,6 +112,9 @@ test('usuario sin rol: no modifica ni gestiona personal', async () => {
   await como(SIN_ROL, async () => {
     const r = await db.query(`update productos set precio = 1`);
     assert.equal(r.affectedRows, 0);
+    // Una cuenta auto-registrada (sin rol) no debe ver costos ni márgenes.
+    assert.equal((await q(`select costo, porcentaje_ganancia from productos`)).length, 0);
+    assert.equal((await q(`select costo from variantes`)).length, 0);
     await falla(q(`select guardar_empleado(null, 'Intruso', 'x', null, true, '1234')`), /administrador/);
     await falla(q(`select ajustar_stock($1, 5)`, [varM]), /administrador/);
   });
