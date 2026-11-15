@@ -23,7 +23,7 @@ npm run dev
 
 ### Base de datos (esquema v2)
 
-- **Base nueva:** en *Supabase → SQL Editor* ejecutá completo `database/schema.sql`.
+- **Base nueva:** en *Supabase → SQL Editor* ejecutá completo `database/schema.sql` y después `database/seed.sql` (catálogo inicial con fotos).
 - **Base con el esquema v1:** ejecutá en una sola transacción, en orden,
   `database/migraciones/20261115_01_respaldo_v1.sql` → `database/schema.sql` → `database/migraciones/20261115_03_datos_desde_v1.sql`.
   Las tablas viejas quedan intactas en el esquema `respaldo_v1` (fuera de la API).

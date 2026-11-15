@@ -79,4 +79,21 @@ test('migración v1 → v2: respalda, crea el esquema y conserva el catálogo', 
   // Libro de inventario con el stock inicial.
   const libro = await q(`select sum(delta)::int total, min(motivo) motivo, min(nota) nota from movimientos_stock`);
   assert.deepEqual([libro[0].total, libro[0].motivo, libro[0].nota], [14 + 3 + 20 + 3 + 16, 'alta', 'Migración desde esquema v1']);
+
+  // Paso 4: reemplazo por el catálogo con fotos (seed.sql).
+  await db.transaction(async (tx) => {
+    await tx.exec(leer('database/migraciones/20261115_04_catalogo_con_fotos.sql'));
+    await tx.exec(leer('database/seed.sql'));
+  });
+  const prods = await q(`select nombre, precio, imagen_url, slug from productos order by nombre`);
+  assert.equal(prods.length, 6);
+  assert.equal(prods.filter((p) => p.imagen_url?.startsWith('/productos/')).length, 5);
+  const borcegui = prods.find((p) => p.nombre === 'Borceguí Táctico Cuero');
+  assert.deepEqual([Number(borcegui.precio), borcegui.slug], [38900, 'borcegui-tactico-cuero']);
+  assert.equal((await q(`select count(*)::int n from variantes`))[0].n, 20);
+  assert.deepEqual((await q(`select string_agg(nombre, ',' order by orden) c from categorias`))[0].c, 'Uniformes,Calzado,Accesorios,Protección,Insignias y Grados');
+  const altas = (await q(`select sum(delta)::int s, count(*)::int n, min(nota) nota from movimientos_stock`))[0];
+  assert.deepEqual([altas.n, altas.nota], [20, 'Catálogo inicial']);
+  assert.equal(altas.s, (await q(`select sum(stock)::int s from variantes`))[0].s);
+  assert.equal((await q(`select count(*)::int n from respaldo_v1.productos`))[0].n, 3);
 });
