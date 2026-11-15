@@ -119,6 +119,7 @@ tests/                           Unit tests, integración y pruebas de la base (
 | `npm test` | Tests unitarios (aritmética monetaria, parsers, validación de imágenes) |
 | `npm run test:integration` | Con la app corriendo: rutas, middleware, upload, cabeceras y RLS vía clave anon |
 | `npm run test:db` | Esquema y migración contra PostgreSQL real en memoria (PGlite): RLS, ventas, stock, auditoría, arqueo |
+| `npm run test:concurrencia` | PostgreSQL embebido con varias conexiones: última unidad entre cajas, doble envío, arqueo durante una venta |
 
 ## Atajos del POS
 

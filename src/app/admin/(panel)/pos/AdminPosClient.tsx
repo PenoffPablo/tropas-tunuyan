@@ -50,6 +50,26 @@ type Props = {
 
 type ModalActivo = 'variante' | 'credencial' | 'cobro' | 'apertura' | 'arqueo' | 'ticket' | null;
 
+const CLAVE_CARRITO = 'tt-pos-carrito';
+
+/** Valida un ítem leído de sessionStorage (dato externo: no se confía en su forma). */
+function esItemCarrito(x: unknown): x is VentaItemCarrito {
+  if (!x || typeof x !== 'object') return false;
+  const i = x as Record<string, unknown>;
+  return (
+    typeof i.variante_id === 'string' &&
+    typeof i.producto_id === 'string' &&
+    typeof i.nombre === 'string' &&
+    typeof i.talle === 'string' &&
+    typeof i.color === 'string' &&
+    typeof i.precio === 'number' &&
+    Number.isInteger(i.cantidad) &&
+    (i.cantidad as number) > 0 &&
+    typeof i.exige_credencial === 'boolean' &&
+    typeof i.stock_disponible === 'number'
+  );
+}
+
 function normalizar(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 }
@@ -61,6 +81,29 @@ export default function AdminPosClient({ productos: productosServidor, categoria
   const [productos, setProductos] = useState(productosServidor);
   const [turno, setTurno] = useState<TurnoCaja | null>(turnoInicial);
   const [carrito, setCarrito] = useState<VentaItemCarrito[]>([]);
+  const carritoCargado = useRef(false);
+
+  /* El carrito sobrevive a una recarga o a un re-login por sesión vencida
+     (sessionStorage: solo esta pestaña; se borra al cerrar el navegador).
+     La reconciliación de abajo lo ajusta a precios y stock vigentes. */
+  useEffect(() => {
+    try {
+      const guardado = JSON.parse(sessionStorage.getItem(CLAVE_CARRITO) ?? '[]') as unknown;
+      if (Array.isArray(guardado) && guardado.length > 0) setCarrito(guardado.filter(esItemCarrito));
+    } catch {
+      /* almacenamiento no disponible o dato corrupto: se arranca vacío */
+    }
+    carritoCargado.current = true;
+  }, []);
+  useEffect(() => {
+    if (!carritoCargado.current) return;
+    try {
+      if (carrito.length > 0) sessionStorage.setItem(CLAVE_CARRITO, JSON.stringify(carrito));
+      else sessionStorage.removeItem(CLAVE_CARRITO);
+    } catch {
+      /* modo privado / cuota llena: el carrito sigue funcionando en memoria */
+    }
+  }, [carrito]);
   const [busqueda, setBusqueda] = useState('');
   const [categoria, setCategoria] = useState<string | null>(null);
   const [vista, setVista] = useState<'catalogo' | 'carrito'>('catalogo');

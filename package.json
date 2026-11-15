@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/utils.test.ts",
     "test:integration": "node tests/integration_check.js",
-    "test:db": "node --test tests/db/esquema.test.mjs tests/db/migracion.test.mjs"
+    "test:db": "node --test tests/db/esquema.test.mjs tests/db/migracion.test.mjs",
+    "test:concurrencia": "node --test --test-concurrency=1 tests/db/concurrencia.test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
@@ -29,6 +30,8 @@
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.20",
+    "embedded-postgres": "^17.5.0-beta.15",
+    "pg": "^8.13.1",
     "postcss": "^8.4.41",
     "tailwindcss": "^3.4.10",
     "typescript": "^5.5.0"
