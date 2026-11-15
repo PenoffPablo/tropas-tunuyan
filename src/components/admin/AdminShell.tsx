@@ -8,6 +8,7 @@ import ThemeToggle from '@/components/ThemeToggle';
 import Icon, { type NombreIcono } from '@/components/ui/Icon';
 import Spinner from '@/components/ui/Spinner';
 import { getSupabaseBrowser } from '@/lib/supabase';
+import { TIENDA } from '@/lib/config';
 import { cn } from '@/lib/utils';
 import { useSubmitLock } from '@/hooks/useSubmitLock';
 
@@ -67,14 +68,15 @@ export default function AdminShell({ rol, email, children }: { rol: RolUsuario; 
               {i.label}
             </Link>
           ))}
-          <Link
-            href="/catalogo"
+          <a
+            href={`${TIENDA.urlSitio}/catalogo`}
             target="_blank"
+            rel="noopener"
             className="flex h-10 items-center gap-3 rounded-xl px-3 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-white/[0.04] dark:hover:text-white"
           >
             <Icon name="external" size={17} />
             Ver catálogo
-          </Link>
+          </a>
         </nav>
 
         <div className="border-t border-slate-200/70 p-3 dark:border-white/[0.06]">

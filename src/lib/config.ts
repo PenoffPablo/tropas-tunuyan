@@ -6,6 +6,8 @@ export const TIENDA = {
   titular: process.env.NEXT_PUBLIC_TITULAR_COBRO || 'Tropas Tunuyán',
   cvu: process.env.NEXT_PUBLIC_CVU_COBRO || '',
   ubicacion: 'Tunuyán, Valle de Uco, Mendoza',
+  /** Dirección oficial del sitio (sin barra final). Vacía = rutas relativas al dominio actual. */
+  urlSitio: (process.env.NEXT_PUBLIC_SITE_URL || '').replace(/\/+$/, ''),
 } as const;
 
 export function urlWhatsAppTienda(mensaje?: string): string {

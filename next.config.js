@@ -61,7 +61,25 @@ const nextConfig = {
   },
   async redirects() {
     // La raíz y /catalogo eran páginas duplicadas: el catálogo es la portada.
-    return [{ source: '/', destination: '/catalogo', permanent: true }];
+    const reglas = [{ source: '/', destination: '/catalogo', permanent: true }];
+
+    // En producción, los alias de Vercel redirigen al dominio oficial: un solo
+    // dominio para SEO y para la sesión del panel (las cookies son por dominio).
+    // Las URLs de cada deploy (previews) no se tocan.
+    const oficial = (process.env.NEXT_PUBLIC_SITE_URL || '').replace(/\/+$/, '');
+    if (process.env.VERCEL_ENV === 'production' && oficial) {
+      const hostOficial = new URL(oficial).host;
+      for (const alias of (process.env.ALIAS_REDIRIGIDOS || '').split(',').map((a) => a.trim()).filter(Boolean)) {
+        if (alias === hostOficial) continue;
+        reglas.unshift({
+          source: '/:path*',
+          has: [{ type: 'host', value: alias }],
+          destination: `${oficial}/:path*`,
+          permanent: true,
+        });
+      }
+    }
+    return reglas;
   },
   async headers() {
     return [
