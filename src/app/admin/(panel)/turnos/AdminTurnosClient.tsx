@@ -73,9 +73,9 @@ export default function AdminTurnosClient({ empleados, turnos, turnoAbierto: abi
           </div>
         </div>
         {turnoAbierto ? (
-          <button type="button" onClick={() => setModal('arqueo')} className="btn-warning"><Icon name="lock" size={16} /> Arqueo ciego y cierre</button>
+          <button type="button" onClick={() => setModal('arqueo')} className="btn-warning w-full sm:w-auto"><Icon name="lock" size={16} /> Arqueo ciego y cierre</button>
         ) : (
-          <button type="button" onClick={() => setModal('apertura')} className="btn-primary"><Icon name="unlock" size={16} /> Abrir turno</button>
+          <button type="button" onClick={() => setModal('apertura')} className="btn-primary w-full sm:w-auto"><Icon name="unlock" size={16} /> Abrir turno</button>
         )}
       </section>
 
@@ -129,7 +129,39 @@ export default function AdminTurnosClient({ empleados, turnos, turnoAbierto: abi
       ) : turnos.length === 0 ? (
         <EmptyState icono="clock" titulo="Todavía no hay turnos" descripcion="Abrí el primer turno de caja para empezar a vender." />
       ) : (
-        <div className="surface overflow-x-auto">
+        <>
+        <ul className="space-y-2 md:hidden">
+          {turnos.map((t) => {
+            const abierto = t.estado === 'abierto';
+            const et = etiquetaDesvio(t.diferencia ?? 0);
+            return (
+              <li key={t.id} className="surface flex items-start gap-3 p-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-sm font-medium text-slate-900 dark:text-white">{t.cajero_nombre}</span>
+                    <span className={cn('num shrink-0 text-sm font-semibold', abierto ? 'text-emerald-600' : et.tono === 'exacto' ? 'text-emerald-600 dark:text-emerald-400' : et.tono === 'sobrante' ? 'text-sky-600 dark:text-sky-400' : 'text-red-600 dark:text-red-400')}>
+                      {abierto ? 'En curso' : et.tono === 'exacto' ? 'Exacta' : formatDesvio(t.diferencia ?? 0)}
+                    </span>
+                  </div>
+                  <div className="num mt-0.5 text-xs text-slate-500">
+                    {formatFechaHora(t.fecha_apertura)}{abierto ? '' : ` → ${formatFechaHora(t.fecha_cierre)}`}
+                  </div>
+                  {!abierto && (
+                    <div className="num mt-1 text-xs text-slate-600 dark:text-slate-400">
+                      {t.cantidad_ventas} ventas · {formatPrecio(t.total_ventas_efectivo + t.total_ventas_digital)}
+                    </div>
+                  )}
+                </div>
+                {!abierto && (
+                  <button type="button" onClick={() => copiarActa(t)} className="btn-ghost btn-icon -mr-1 -mt-1" aria-label="Copiar acta">
+                    <Icon name="copy" size={15} />
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+        <div className="surface hidden overflow-x-auto md:block">
           <table className="tabla min-w-[760px]">
             <thead>
               <tr>
@@ -169,6 +201,7 @@ export default function AdminTurnosClient({ empleados, turnos, turnoAbierto: abi
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {modal === 'empleado' && (

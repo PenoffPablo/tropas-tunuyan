@@ -161,13 +161,13 @@ export default function AdminFinanzasClient({ periodo, movimientos: movServidor,
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-3xl">Libro financiero</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex h-9 rounded-xl border border-slate-200 p-1 text-xs font-semibold dark:border-white/10">
+          <div className="flex h-9 w-full rounded-xl border border-slate-200 p-1 text-xs font-semibold dark:border-white/10 sm:w-auto">
             {(Object.keys(NOMBRE_PERIODO) as Periodo[]).map((p) => (
               <Link
                 key={p}
                 href={`/admin/finanzas?periodo=${p}`}
                 scroll={false}
-                className={cn('flex items-center rounded-lg px-3 transition-colors', periodo === p ? 'bg-slate-900 text-white dark:bg-white dark:text-ink-950' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white')}
+                className={cn('flex flex-1 items-center justify-center rounded-lg px-3 transition-colors sm:flex-none', periodo === p ? 'bg-slate-900 text-white dark:bg-white dark:text-ink-950' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white')}
               >
                 {NOMBRE_PERIODO[p]}
               </Link>
@@ -187,7 +187,7 @@ export default function AdminFinanzasClient({ periodo, movimientos: movServidor,
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <section className="surface p-5 lg:col-span-2">
+        <section className="surface min-w-0 p-4 sm:p-5 lg:col-span-2">
           <h2 className="mb-4 flex items-center justify-between text-sm font-semibold text-slate-900 dark:text-white">
             Más vendidos <span className="eyebrow text-slate-500 dark:text-slate-500">{NOMBRE_PERIODO[periodo]}</span>
           </h2>
@@ -202,9 +202,12 @@ export default function AdminFinanzasClient({ periodo, movimientos: movServidor,
                     <ProductoImagen src={r.imagen_url} alt="" fill sizes="36px" className="object-contain p-1" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="truncate text-sm font-medium text-slate-900 dark:text-white">{r.nombre}</span>
-                      <span className="num shrink-0 text-xs text-slate-500">{r.unidades} u. · {formatPrecio(r.ingresos)}</span>
+                    <div className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-2">
+                      <span className="min-w-0 truncate text-sm font-medium text-slate-900 dark:text-white">{r.nombre}</span>
+                      <span className="num shrink-0 text-xs text-slate-500">
+                        {r.unidades} u. · {formatPrecio(r.ingresos)}
+                        <span className="ml-1 font-semibold text-emerald-600 dark:text-emerald-400 sm:hidden">· +{formatPrecio(r.ganancia)}</span>
+                      </span>
                     </div>
                     <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-white/[0.05]">
                       <div className="h-full origin-left rounded-full bg-gradient-to-r from-militar-600 to-militar-400 transition-transform duration-700 ease-out" style={{ transform: `scaleX(${r.unidades / maxUnidades})` }} />
@@ -216,7 +219,7 @@ export default function AdminFinanzasClient({ periodo, movimientos: movServidor,
             </ol>
           )}
         </section>
-        <section className="surface p-5">
+        <section className="surface min-w-0 p-4 sm:p-5">
           <h2 className="mb-4 text-sm font-semibold text-slate-900 dark:text-white">Ingresos por medio</h2>
           <ul className="space-y-3">
             {kpi.porMetodo.map((m) => (
@@ -281,7 +284,36 @@ export default function AdminFinanzasClient({ periodo, movimientos: movServidor,
           {filtrados.length === 0 ? (
             <EmptyState icono="file" titulo="Sin movimientos" descripcion="No hay registros para los filtros y el período elegidos." />
           ) : (
-            <div className="surface overflow-x-auto">
+            <>
+            <ul className="space-y-2 md:hidden">
+              {filtrados.map((m) => (
+                <li key={m.id} className="surface flex items-start gap-3 p-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-sm font-medium leading-snug text-slate-900 dark:text-white">{m.concepto}</span>
+                      <span className={cn('num shrink-0 text-sm font-semibold', m.tipo === 'ingreso' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400')}>
+                        {m.tipo === 'ingreso' ? '+' : '−'}
+                        {formatPrecio(m.monto)}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+                      <span className="num">{formatFechaHora(m.created_at)}</span>
+                      <span>· {m.categoria_caja}</span>
+                      <span>· {NOMBRE_METODO_CAJA[m.metodo_pago] ?? m.metodo_pago}</span>
+                      <span className={cn('badge', m.venta_id ? 'border-sky-500/30 text-sky-700 dark:text-sky-300' : 'border-slate-300 text-slate-500 dark:border-white/15')}>
+                        {m.venta_id ? 'POS' : 'Manual'}
+                      </span>
+                    </div>
+                  </div>
+                  {!m.venta_id && (
+                    <button type="button" onClick={() => borrar(m)} disabled={borrando === m.id} className="btn-ghost btn-icon -mr-1 -mt-1 text-red-500" aria-label="Anular movimiento">
+                      <Icon name="trash" size={15} />
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <div className="surface hidden overflow-x-auto md:block">
               <table className="tabla min-w-[720px]">
                 <thead>
                   <tr>
@@ -321,6 +353,7 @@ export default function AdminFinanzasClient({ periodo, movimientos: movServidor,
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </section>
       ) : (
@@ -334,7 +367,43 @@ export default function AdminFinanzasClient({ periodo, movimientos: movServidor,
           {turnos.length === 0 ? (
             <EmptyState icono="clock" titulo="Sin turnos en el período" />
           ) : (
-            <div className="surface overflow-x-auto">
+            <>
+            <ul className="space-y-2 md:hidden">
+              {turnos.map((t) => {
+                const abierto = t.estado === 'abierto';
+                const et = etiquetaDesvio(t.diferencia ?? 0);
+                return (
+                  <li key={t.id} className="surface p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-sm font-medium text-slate-900 dark:text-white">{t.cajero_nombre}</span>
+                      <span className={cn('num shrink-0 text-sm font-semibold', abierto ? 'text-emerald-600' : et.tono === 'exacto' ? 'text-emerald-600 dark:text-emerald-400' : et.tono === 'sobrante' ? 'text-sky-600 dark:text-sky-400' : 'text-red-600 dark:text-red-400')}>
+                        {abierto ? 'Abierto' : `${formatDesvio(t.diferencia ?? 0)} · ${desvioPorcentual(t).toLocaleString('es-AR')}%`}
+                      </span>
+                    </div>
+                    <div className="num mt-0.5 text-xs text-slate-500">
+                      {formatFechaHora(t.fecha_apertura)} → {abierto ? 'en curso' : formatFechaHora(t.fecha_cierre)}
+                    </div>
+                    <dl className="num mt-2 grid grid-cols-3 gap-2 text-xs">
+                      {(
+                        [
+                          ['Fondo', t.monto_apertura],
+                          ['Efectivo', abierto ? null : t.total_ventas_efectivo],
+                          ['Digital', abierto ? null : t.total_ventas_digital],
+                          ['Esperado', abierto ? null : t.monto_cierre_esperado ?? 0],
+                          ['Declarado', abierto ? null : t.monto_cierre_declarado ?? 0],
+                        ] as const
+                      ).map(([k, v]) => (
+                        <div key={k}>
+                          <dt className="text-[10px] uppercase tracking-wide text-slate-400">{k}</dt>
+                          <dd className="font-semibold text-slate-800 dark:text-slate-200">{v === null ? '—' : formatPrecio(v)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="surface hidden overflow-x-auto md:block">
               <table className="tabla min-w-[860px]">
                 <thead>
                   <tr>
@@ -372,6 +441,7 @@ export default function AdminFinanzasClient({ periodo, movimientos: movServidor,
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </section>
       )}

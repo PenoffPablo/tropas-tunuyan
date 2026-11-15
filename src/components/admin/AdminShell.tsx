@@ -117,6 +117,16 @@ export default function AdminShell({ rol, email, children }: { rol: RolUsuario; 
             </span>
           </Link>
           <div className="flex shrink-0 items-center gap-1">
+            <a
+              href={`${TIENDA.urlSitio}/catalogo`}
+              target="_blank"
+              rel="noopener"
+              className="btn-ghost btn-icon"
+              aria-label="Ver catálogo (se abre en otra pestaña)"
+              title="Ver catálogo"
+            >
+              <Icon name="external" size={17} />
+            </a>
             <ThemeToggle />
             <button type="button" onClick={salir} disabled={saliendo} className="btn-ghost btn-icon text-red-500" aria-label="Cerrar sesión">
               {saliendo ? <Spinner /> : <Icon name="logout" size={17} />}

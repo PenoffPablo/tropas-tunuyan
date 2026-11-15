@@ -25,6 +25,19 @@ import {
   sumCurrency,
 } from '@/lib/utils';
 
+/** true por debajo de 640px (breakpoint sm de Tailwind). */
+function useEsMobile(): boolean {
+  const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)');
+    const actualizar = () => setMobile(mq.matches);
+    actualizar();
+    mq.addEventListener('change', actualizar);
+    return () => mq.removeEventListener('change', actualizar);
+  }, []);
+  return mobile;
+}
+
 const ModalProductoForm = dynamic(() => import('@/components/admin/ModalProductoForm'), { ssr: false });
 const ModalAjusteStock = dynamic(() => import('@/components/admin/ModalAjusteStock'), { ssr: false });
 const ModalGestionCategorias = dynamic(() => import('@/components/admin/ModalGestionCategorias'), { ssr: false });
@@ -44,6 +57,8 @@ export default function AdminInventarioClient({ productos: productosServidor, ca
   const [filtro, setFiltro] = useState<Filtro>('todos');
   const [categoria, setCategoria] = useState<string | null>(null);
   const [vista, setVista] = useState<'grupos' | 'tabla'>('grupos');
+  // En pantallas chicas la tabla no entra: se usa siempre la vista agrupada.
+  const esMobile = useEsMobile();
   const [formAbierto, setFormAbierto] = useState(false);
   const [editando, setEditando] = useState<ProductoConVariantes | null>(null);
   const [ajuste, setAjuste] = useState<ProductoConVariantes | null>(null);
@@ -174,7 +189,7 @@ export default function AdminInventarioClient({ productos: productosServidor, ca
             <Icon name="search" size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input type="search" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar producto, talle, color…" className="input pl-10" />
           </label>
-          <div className="flex gap-2 overflow-x-auto scrollbar-none">
+          <div className="mask-fade-x -mx-3 flex min-w-0 gap-2 overflow-x-auto px-3 scrollbar-none sm:mx-0 sm:px-0">
             {(
               [
                 ['todos', 'Todos'],
@@ -187,7 +202,7 @@ export default function AdminInventarioClient({ productos: productosServidor, ca
                 {t}
               </button>
             ))}
-            <div className="flex h-10 rounded-xl border border-slate-200 p-1 dark:border-white/10">
+            <div className="hidden h-10 shrink-0 rounded-xl border border-slate-200 p-1 dark:border-white/10 sm:flex">
               {(['grupos', 'tabla'] as const).map((v) => (
                 <button
                   key={v}
@@ -215,7 +230,7 @@ export default function AdminInventarioClient({ productos: productosServidor, ca
 
       {filtrados.length === 0 ? (
         <EmptyState icono="box" titulo="Sin productos para mostrar" descripcion="Ajustá los filtros o cargá un producto nuevo." />
-      ) : vista === 'tabla' ? (
+      ) : vista === 'tabla' && !esMobile ? (
         <div className="surface overflow-x-auto">
           <table className="tabla min-w-[760px]">
             <thead>

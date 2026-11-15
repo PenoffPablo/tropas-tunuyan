@@ -422,7 +422,7 @@ export default function AdminPosClient({ productos: productosServidor, categoria
 
       <div className="grid items-start gap-5 lg:grid-cols-12">
         {/* ── Catálogo ── */}
-        <section className={cn('space-y-4 lg:col-span-7 xl:col-span-8', vista === 'carrito' && 'hidden lg:block')}>
+        <section className={cn('min-w-0 space-y-4 lg:col-span-7 xl:col-span-8', vista === 'carrito' && 'hidden lg:block')}>
           <div className="surface space-y-3 p-3 sm:p-4">
             <div className="relative">
               <Icon name="search" size={17} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -522,7 +522,7 @@ export default function AdminPosClient({ productos: productosServidor, categoria
         </section>
 
         {/* ── Carrito ── */}
-        <aside className={cn('surface-elevated flex flex-col lg:sticky lg:top-4 lg:col-span-5 lg:max-h-[calc(100dvh-2rem)] xl:col-span-4', vista === 'catalogo' && 'hidden lg:flex')}>
+        <aside className={cn('surface-elevated flex min-w-0 flex-col lg:sticky lg:top-4 lg:col-span-5 lg:max-h-[calc(100dvh-2rem)] xl:col-span-4', vista === 'catalogo' && 'hidden lg:flex')}>
           <div className="flex items-center justify-between border-b border-slate-200/80 px-4 py-3 dark:border-white/[0.06]">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
               <Icon name="cart" size={16} /> Venta actual
