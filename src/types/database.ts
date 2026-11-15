@@ -67,8 +67,28 @@ export type VariantePublica = Omit<Variante, 'costo' | 'sku' | 'codigo_barras'>;
 /** Columnas que pide el catálogo público (anon solo puede leer estas). */
 export const COLUMNAS_PRODUCTO_PUBLICO =
   'id, nombre, slug, descripcion, precio, exige_credencial, categoria_id, imagen_url, etiquetas, activo, created_at, updated_at';
-/** Columnas de productos para el panel (todas menos la interna `busqueda`). */
-export const COLUMNAS_PRODUCTO_PANEL = `${COLUMNAS_PRODUCTO_PUBLICO}, costo, porcentaje_ganancia`;
+/**
+ * Columnas de productos/variantes legibles con sesión. Los COSTOS no se leen
+ * directo (ni el vendedor ni el admin): el admin los pide con la RPC costos_catalogo().
+ */
+export const COLUMNAS_PRODUCTO_PANEL = COLUMNAS_PRODUCTO_PUBLICO;
+export const COLUMNAS_VARIANTE_PANEL =
+  'id, producto_id, sku, codigo_barras, talle, color, precio, stock, stock_minimo, created_at, updated_at';
+
+/** Producto tal como llega de la base al panel (sin columnas de costo). */
+export type ProductoPanelSinCostos = Omit<Producto, 'costo' | 'porcentaje_ganancia'> & {
+  variantes: Omit<Variante, 'costo'>[];
+  categorias: Categoria | null;
+};
+
+/** Fila de la RPC costos_catalogo() (solo admin). */
+export type CostoCatalogo = {
+  producto_id: string;
+  costo: number;
+  porcentaje_ganancia: number;
+  /** { variante_id: costo } solo para variantes con costo propio. */
+  costos_variantes: Record<string, number>;
+};
 export const COLUMNAS_VARIANTE_PUBLICA = 'id, producto_id, talle, color, precio, stock, stock_minimo, created_at, updated_at';
 
 /** Empleado tal como lo puede leer el panel (el hash del PIN jamás sale de la base). */
@@ -382,6 +402,7 @@ export type Database = {
       crear_producto: { Args: { p_producto: Json; p_variantes: Json }; Returns: string };
       ajustar_stock: { Args: { p_variante_id: string; p_delta: number; p_nota?: string | null }; Returns: number };
       ranking_productos: { Args: { p_desde?: string | null }; Returns: RankingProducto[] };
+      costos_catalogo: { Args: Record<string, never>; Returns: CostoCatalogo[] };
     };
     Enums: { [_ in never]: never };
     CompositeTypes: { [_ in never]: never };

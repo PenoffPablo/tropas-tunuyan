@@ -384,10 +384,19 @@ grant select (id, nombre, slug, descripcion, categoria_id, precio, exige_credenc
 grant select (id, producto_id, talle, color, precio, stock, stock_minimo, created_at, updated_at)
   on public.variantes to anon;
 
--- Panel (RLS decide filas y rol):
-grant select, insert, update, delete on public.categorias, public.productos, public.variantes to authenticated;
+-- Panel (RLS decide filas y rol). Las columnas de COSTO no se leen directo ni
+-- siquiera con sesión: el vendedor no las ve y el admin las obtiene con la RPC
+-- costos_catalogo() (valida el rol adentro).
+grant select, insert, update, delete on public.categorias to authenticated;
+grant insert, update, delete on public.productos, public.variantes to authenticated;
+grant select (id, nombre, slug, descripcion, categoria_id, precio, exige_credencial, imagen_url, etiquetas, activo, created_at, updated_at)
+  on public.productos to authenticated;
+grant select (id, producto_id, sku, codigo_barras, talle, color, precio, stock, stock_minimo, created_at, updated_at)
+  on public.variantes to authenticated;
+grant select (id, venta_id, producto_id, variante_id, nombre_producto, talle, color, precio_unitario, cantidad, subtotal, created_at)
+  on public.venta_detalles to authenticated;
 grant select (id, nombre, puesto, telefono, activo, fecha_alta, created_at, updated_at) on public.empleados to authenticated;
-grant select on public.turnos_caja, public.ventas, public.venta_detalles, public.movimientos_stock, public.auditoria to authenticated;
+grant select on public.turnos_caja, public.ventas, public.movimientos_stock, public.auditoria to authenticated;
 grant select, insert, delete on public.movimientos_caja to authenticated;
 
 -- ────────────────────────────────────────────────────────────────────────────
@@ -501,9 +510,10 @@ revoke all on function private.validar_pin_empleado(uuid, text) from public, ano
 
 create or replace function private.venta_json(p_venta_id uuid)
 returns jsonb language sql stable security definer set search_path = '' as $$
+  -- Sin costo_unitario: la respuesta llega al POS (también al vendedor).
   select to_jsonb(v) || jsonb_build_object(
            'detalles',
-           coalesce((select jsonb_agg(to_jsonb(d) order by d.nombre_producto, d.talle)
+           coalesce((select jsonb_agg(to_jsonb(d) - 'costo_unitario' order by d.nombre_producto, d.talle)
                        from public.venta_detalles d where d.venta_id = v.id), '[]'::jsonb))
     from public.ventas v
    where v.id = p_venta_id;
@@ -937,10 +947,15 @@ begin
 end;
 $$;
 
--- Ranking de productos vendidos (respeta RLS del llamador).
+-- Ranking de productos vendidos con ganancia: solo administrador.
 create or replace function public.ranking_productos(p_desde timestamptz default null)
 returns table (producto_id uuid, nombre text, imagen_url text, unidades bigint, ingresos numeric, ganancia numeric)
-language sql stable security invoker set search_path = '' as $$
+language plpgsql stable security definer set search_path = '' as $$
+begin
+  if not private.es_admin() then
+    raise exception 'Solo el administrador puede ver la rentabilidad' using errcode = '42501';
+  end if;
+  return query
   select d.producto_id, max(d.nombre_producto), max(p.imagen_url), sum(d.cantidad)::bigint, sum(d.subtotal),
          sum((d.precio_unitario - d.costo_unitario) * d.cantidad)
     from public.venta_detalles d
@@ -950,6 +965,24 @@ language sql stable security invoker set search_path = '' as $$
    group by d.producto_id
    order by 4 desc, 5 desc
    limit 20;
+end;
+$$;
+
+-- Costos del catálogo para el panel del administrador (el vendedor no los ve).
+-- costos_variantes: {variante_id: costo} solo de variantes con costo propio.
+create or replace function public.costos_catalogo()
+returns table (producto_id uuid, costo numeric, porcentaje_ganancia numeric, costos_variantes jsonb)
+language plpgsql stable security definer set search_path = '' as $$
+begin
+  if not private.es_admin() then
+    raise exception 'Solo el administrador puede ver costos' using errcode = '42501';
+  end if;
+  return query
+  select p.id, p.costo, p.porcentaje_ganancia,
+         coalesce((select jsonb_object_agg(v.id, v.costo) from public.variantes v
+                    where v.producto_id = p.id and v.costo is not null), '{}'::jsonb)
+    from public.productos p;
+end;
 $$;
 
 revoke all on function public.verificar_credencial_empleado(uuid, text) from public, anon;
@@ -961,6 +994,7 @@ revoke all on function public.procesar_venta_pos(uuid, jsonb, text, numeric, num
 revoke all on function public.crear_producto(jsonb, jsonb) from public, anon;
 revoke all on function public.ajustar_stock(uuid, integer, text) from public, anon;
 revoke all on function public.ranking_productos(timestamptz) from public, anon;
+revoke all on function public.costos_catalogo() from public, anon;
 
 grant execute on function public.verificar_credencial_empleado(uuid, text) to authenticated;
 grant execute on function public.guardar_empleado(uuid, text, text, text, boolean, text) to authenticated;
@@ -971,6 +1005,7 @@ grant execute on function public.procesar_venta_pos(uuid, jsonb, text, numeric, 
 grant execute on function public.crear_producto(jsonb, jsonb) to authenticated;
 grant execute on function public.ajustar_stock(uuid, integer, text) to authenticated;
 grant execute on function public.ranking_productos(timestamptz) to authenticated;
+grant execute on function public.costos_catalogo() to authenticated;
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 9. STORAGE: bucket 'productos' (lectura pública por URL, escritura admin)

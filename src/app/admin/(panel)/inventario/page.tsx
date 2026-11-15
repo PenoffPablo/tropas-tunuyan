@@ -1,8 +1,13 @@
 import type { Metadata } from 'next';
-import { COLUMNAS_PRODUCTO_PANEL } from '@/types/database';
 import { createSupabaseServer } from '@/lib/supabase-server';
-import { comoFilas } from '@/lib/datos';
-import type { Categoria, ProductoConVariantes } from '@/types/database';
+import { comoFilas, conCostos } from '@/lib/datos';
+import {
+  COLUMNAS_PRODUCTO_PANEL,
+  COLUMNAS_VARIANTE_PANEL,
+  type Categoria,
+  type CostoCatalogo,
+  type ProductoPanelSinCostos,
+} from '@/types/database';
 import AdminInventarioClient from './AdminInventarioClient';
 
 export const metadata: Metadata = { title: 'Inventario' };
@@ -10,16 +15,23 @@ export const dynamic = 'force-dynamic';
 
 export default async function AdminInventarioPage() {
   const supabase = createSupabaseServer();
-  const [prod, cat] = await Promise.all([
-    supabase.from('productos').select(`${COLUMNAS_PRODUCTO_PANEL}, variantes (*), categorias (*)`).order('nombre', { ascending: true }),
+  const [prod, cat, costos] = await Promise.all([
+    supabase
+      .from('productos')
+      .select(`${COLUMNAS_PRODUCTO_PANEL}, variantes (${COLUMNAS_VARIANTE_PANEL}), categorias (*)`)
+      .order('nombre', { ascending: true }),
     supabase.from('categorias').select('*').order('orden', { ascending: true }),
+    // Costos y márgenes: RPC que solo responde al administrador.
+    supabase.rpc('costos_catalogo'),
   ]);
   if (prod.error) throw new Error(`No se pudo cargar el inventario: ${prod.error.message}`);
+  // Si la RPC falla (p. ej. migración aún no aplicada) el inventario se muestra igual, sin costos.
+  if (costos.error) console.error('[inventario] costos_catalogo:', costos.error.message);
 
-  const productos = comoFilas<ProductoConVariantes>(prod.data).map((p) => ({
-    ...p,
-    variantes: [...p.variantes].sort((a, b) => a.color.localeCompare(b.color) || a.talle.localeCompare(b.talle, 'es', { numeric: true })),
-  }));
+  const productos = conCostos(
+    comoFilas<ProductoPanelSinCostos>(prod.data),
+    costos.error ? [] : comoFilas<CostoCatalogo>(costos.data)
+  );
 
   return <AdminInventarioClient productos={productos} categorias={comoFilas<Categoria>(cat.data)} />;
 }

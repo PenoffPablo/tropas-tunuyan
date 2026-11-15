@@ -110,11 +110,13 @@ test('anon: ve el catálogo pero no costos, caja, libro ni auditoría; no escrib
 
 test('usuario sin rol: no modifica ni gestiona personal', async () => {
   await como(SIN_ROL, async () => {
-    const r = await db.query(`update productos set precio = 1`);
-    assert.equal(r.affectedRows, 0);
+    // Rechazo por permisos o 0 filas afectadas: en ambos casos no modifica nada.
+    const r = await db.query(`update productos set precio = 1`).catch((e) => e);
+    assert.ok(r instanceof Error ? /permission denied/.test(r.message) : r.affectedRows === 0);
     // Una cuenta auto-registrada (sin rol) no debe ver costos ni márgenes.
-    assert.equal((await q(`select costo, porcentaje_ganancia from productos`)).length, 0);
-    assert.equal((await q(`select costo from variantes`)).length, 0);
+    await falla(q(`select costo, porcentaje_ganancia from productos`), /permission denied/);
+    await falla(q(`select costo from variantes`), /permission denied/);
+    assert.equal((await q(`select id, nombre, precio from productos`)).length, 0);
     await falla(q(`select guardar_empleado(null, 'Intruso', 'x', null, true, '1234')`), /administrador/);
     await falla(q(`select ajustar_stock($1, 5)`, [varM]), /administrador/);
   });
@@ -182,10 +184,13 @@ test('venta: usa el precio de la variante, es idempotente y descuenta stock una 
     assert.equal(Number(v.total), 85000);
     assert.equal(Number(v.vuelto), 5000);
     const xl = v.detalles.find((d) => d.talle === 'XL');
-    assert.deepEqual([Number(xl.precio_unitario), Number(xl.costo_unitario)], [45000, 22000]);
+    assert.equal(Number(xl.precio_unitario), 45000);
+    assert.equal('costo_unitario' in xl, false, 'la respuesta del POS no debe exponer costos');
     const otra = await venta([{ variante_id: varM, cantidad: 1 }, { variante_id: varXL, cantidad: 1 }], { total: 85000, key });
     assert.equal(otra.reintento, true);
   });
+  const costoXL = await uno(`select costo_unitario from venta_detalles where talle = 'XL'`);
+  assert.equal(Number(costoXL.costo_unitario), 22000);
   const s = await q(`select talle, stock from variantes where producto_id = $1 order by talle`, [prodId]);
   assert.deepEqual(s.map((x) => x.stock), [14, 2]);
   const libro = await q(`select delta, venta_id from movimientos_stock where motivo = 'venta'`);
@@ -228,5 +233,29 @@ test('ranking: ingresos y ganancia por producto con costo por variante', async (
     const r = await q(`select * from ranking_productos()`);
     const pant = r.find((x) => x.producto_id === prodId);
     assert.deepEqual([Number(pant.unidades), Number(pant.ingresos), Number(pant.ganancia)], [2, 85000, 43000]);
+  });
+});
+
+test('vendedor: no ve costos ni márgenes por ninguna vía; el admin sí, vía costos_catalogo()', async () => {
+  await como(VEND, async () => {
+    await uno(`select id, nombre, precio from productos limit 1`);
+    await uno(`select id, talle, precio, stock, codigo_barras from variantes limit 1`);
+    await falla(q(`select costo from productos`), /permission denied/);
+    await falla(q(`select porcentaje_ganancia from productos`), /permission denied/);
+    await falla(q(`select costo from variantes`), /permission denied/);
+    await falla(q(`select costo_unitario from venta_detalles`), /permission denied/);
+    await uno(`select precio_unitario, cantidad from venta_detalles limit 1`);
+    await falla(q(`select * from costos_catalogo()`), /administrador/);
+    await falla(q(`select * from ranking_productos()`), /administrador/);
+  });
+  await como(ADMIN, async () => {
+    const c = await q(`select * from costos_catalogo()`);
+    const pant = c.find((x) => x.producto_id === prodId);
+    assert.equal(Number(pant.costo), 20000);
+    assert.equal(Number(pant.costos_variantes[varXL]), 22000);
+    assert.equal(varM in pant.costos_variantes, false);
+    // El admin edita costos sin necesitar leerlos directo.
+    const r = await db.query(`update productos set costo = 20500 where id = $1`, [prodId]);
+    assert.equal(r.affectedRows, 1);
   });
 });

@@ -5,7 +5,7 @@
  * atómico, nunca negativo). Permite también agregar y eliminar variantes.
  */
 import { useState } from 'react';
-import type { ProductoConVariantes, Variante } from '@/types/database';
+import { COLUMNAS_VARIANTE_PANEL, type ProductoConVariantes, type Variante } from '@/types/database';
 import Modal, { ModalBody, ModalFooter, ModalHeader } from '@/components/ui/Modal';
 import Icon from '@/components/ui/Icon';
 import Spinner from '@/components/ui/Spinner';
@@ -108,11 +108,11 @@ function Contenido({
         const { data, error: err } = await getSupabaseBrowser()
           .from('variantes')
           .insert({ producto_id: producto.id, talle: nueva.talle.trim(), color, stock, stock_minimo: minimo })
-          .select('*')
+          .select(COLUMNAS_VARIANTE_PANEL)
           .single();
         if (err) throw errorDesdePostgrest(err);
-        const v = comoFila<Variante>(data);
-        if (v) publicar([...variantes, v]);
+        const v = comoFila<Omit<Variante, 'costo'>>(data);
+        if (v) publicar([...variantes, { ...v, costo: null }]);
         setNueva((n) => ({ ...n, talle: '', stock: '0' }));
       } catch (err) {
         setError(mensajeError(err));

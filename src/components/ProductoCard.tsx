@@ -12,11 +12,21 @@ type Props = {
   onSelect: (p: ProductoPublicoConVariantes) => void;
 };
 
+const ORDEN_LETRAS = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
+
+/** Talles en orden natural: números de menor a mayor y letras S < M < L < XL. */
+function compararTalles(a: string, b: string): number {
+  const ia = ORDEN_LETRAS.indexOf(a.toUpperCase());
+  const ib = ORDEN_LETRAS.indexOf(b.toUpperCase());
+  if (ia >= 0 && ib >= 0) return ia - ib;
+  return a.localeCompare(b, 'es', { numeric: true });
+}
+
 function ProductoCard({ producto, index, onSelect }: Props) {
   const stock = calcularStockTotal(producto.variantes.map((v) => v.stock));
   const agotado = stock === 0;
   const ultimas = !agotado && stock <= 5;
-  const talles = Array.from(new Set(producto.variantes.map((v) => v.talle)));
+  const talles = Array.from(new Set(producto.variantes.map((v) => v.talle))).sort(compararTalles);
   const colores = Array.from(new Set(producto.variantes.map((v) => v.color)));
   const { min, max } = rangoPrecios(producto, producto.variantes);
 

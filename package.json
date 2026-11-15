@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/utils.test.ts",
     "test:integration": "node tests/integration_check.js",
-    "test:db": "node --test tests/db/esquema.test.mjs tests/db/migracion.test.mjs",
+    "test:db": "node --test tests/db/esquema.test.mjs tests/db/migracion.test.mjs tests/db/migracion_costos.test.mjs",
     "test:concurrencia": "node --test --test-concurrency=1 tests/db/concurrencia.test.mjs"
   },
   "dependencies": {

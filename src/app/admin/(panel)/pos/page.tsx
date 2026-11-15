@@ -1,9 +1,15 @@
 import type { Metadata } from 'next';
-import { COLUMNAS_PRODUCTO_PANEL } from '@/types/database';
 import { createSupabaseServer } from '@/lib/supabase-server';
 import { COLUMNAS_EMPLEADO } from '@/lib/supabase';
-import { comoFila, comoFilas } from '@/lib/datos';
-import type { Categoria, Empleado, ProductoConVariantes, TurnoCaja } from '@/types/database';
+import { comoFila, comoFilas, conCostos } from '@/lib/datos';
+import {
+  COLUMNAS_PRODUCTO_PANEL,
+  COLUMNAS_VARIANTE_PANEL,
+  type Categoria,
+  type Empleado,
+  type ProductoPanelSinCostos,
+  type TurnoCaja,
+} from '@/types/database';
 import AdminPosClient from './AdminPosClient';
 
 export const metadata: Metadata = { title: 'Punto de venta' };
@@ -14,7 +20,7 @@ export default async function AdminPosPage() {
   const [prod, cat, turno, emp] = await Promise.all([
     supabase
       .from('productos')
-      .select(`${COLUMNAS_PRODUCTO_PANEL}, variantes (*), categorias (*)`)
+      .select(`${COLUMNAS_PRODUCTO_PANEL}, variantes (${COLUMNAS_VARIANTE_PANEL}), categorias (*)`)
       .eq('activo', true)
       .order('nombre', { ascending: true }),
     supabase.from('categorias').select('*').order('orden', { ascending: true }),
@@ -24,10 +30,8 @@ export default async function AdminPosPage() {
 
   if (prod.error) throw new Error(`No se pudo cargar el catálogo del POS: ${prod.error.message}`);
 
-  const productos = comoFilas<ProductoConVariantes>(prod.data).map((p) => ({
-    ...p,
-    variantes: [...p.variantes].sort((a, b) => a.color.localeCompare(b.color) || a.talle.localeCompare(b.talle, 'es', { numeric: true })),
-  }));
+  // El POS no necesita costos (y el vendedor no puede leerlos): quedan en 0 / null.
+  const productos = conCostos(comoFilas<ProductoPanelSinCostos>(prod.data));
 
   return (
     <AdminPosClient
