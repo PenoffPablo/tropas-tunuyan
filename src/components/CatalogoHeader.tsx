@@ -28,16 +28,17 @@ export default function CatalogoHeader() {
             href={urlWhatsAppTienda('Hola Tropas Tunuyán, quisiera hacer una consulta sobre su equipamiento.')}
             target="_blank"
             rel="noopener noreferrer"
-            className="btn border border-emerald-600/20 bg-emerald-500/10 px-3 text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300 sm:px-4"
+            aria-label="Consultar por WhatsApp"
+            title="Consultar por WhatsApp"
+            className="btn w-10 border border-emerald-600/20 bg-emerald-500/10 px-0 text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300 sm:w-auto sm:px-4"
           >
             <Icon name="whatsapp" size={17} />
+            {/* En mobile solo el ícono: así entran WhatsApp, acceso del personal y tema sin cortar la marca. */}
             <span className="hidden sm:inline">Atención efectivos</span>
-            <span className="sm:hidden">WhatsApp</span>
           </a>
-          {/* En mobile el acceso del personal queda en el footer: libera espacio para la marca. */}
           <Link
             href="/admin/login"
-            className="btn-ghost btn-icon hidden sm:inline-flex"
+            className="btn-ghost btn-icon"
             aria-label="Acceso del personal"
             title="Acceso del personal"
           >
