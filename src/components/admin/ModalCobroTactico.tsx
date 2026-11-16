@@ -13,6 +13,14 @@ import Icon, { type NombreIcono } from '@/components/ui/Icon';
 import Spinner from '@/components/ui/Spinner';
 import { useSubmitLock } from '@/hooks/useSubmitLock';
 import { TIENDA } from '@/lib/config';
+import {
+  limpiarNombreCliente,
+  limpiarNroOperacion,
+  limpiarTelefono,
+  validarNombreCliente,
+  validarNroOperacion,
+  validarTelefonoCliente,
+} from '@/lib/ticket';
 import { cn, formatPrecio, parseMonto, roundCurrency, sameCurrency } from '@/lib/utils';
 
 type Props = {
@@ -65,6 +73,9 @@ function Contenido({
   const vuelto = recibidoNum !== null ? Math.max(0, roundCurrency(recibidoNum - total)) : 0;
   const efComb = parseMonto(efectivoComb);
   const digComb = efComb !== null ? roundCurrency(total - efComb) : null;
+  const errorComprobante = metodo === 'efectivo' ? null : validarNroOperacion(comprobante, metodo, metodo !== 'combinado');
+  const errorNombre = validarNombreCliente(nombre);
+  const errorTelefono = validarTelefonoCliente(telefono);
 
   const validacion = useMemo<string | null>(() => {
     if (!(total > 0)) return 'El total debe ser mayor a 0.';
@@ -72,16 +83,14 @@ function Contenido({
       if (recibidoNum === null) return 'Monto recibido inválido.';
       if (recibidoNum < total) return `Faltan ${formatPrecio(roundCurrency(total - recibidoNum))} para cubrir el total.`;
     }
-    if ((metodo === 'transferencia_alias' || metodo === 'tarjeta_postnet') && !comprobante.trim()) {
-      return metodo === 'tarjeta_postnet' ? 'Ingresá el número de cupón del Postnet.' : 'Ingresá el número de operación de la transferencia.';
-    }
+    if (errorComprobante) return errorComprobante;
     if (metodo === 'combinado') {
       if (efComb === null || digComb === null) return 'Monto en efectivo inválido.';
       if (efComb <= 0 || digComb <= 0) return 'Ambas partes del pago combinado deben ser mayores a $ 0.';
       if (!sameCurrency(efComb + digComb, total)) return 'La suma no coincide con el total.';
     }
-    return null;
-  }, [metodo, recibidoNum, total, comprobante, efComb, digComb]);
+    return errorNombre ?? errorTelefono;
+  }, [metodo, recibidoNum, total, errorComprobante, efComb, digComb, errorNombre, errorTelefono]);
 
   const copiarAlias = async () => {
     if (await copiarAlPortapapeles(TIENDA.alias)) {
@@ -104,8 +113,8 @@ function Contenido({
         montoDigital: metodo === 'combinado' ? digComb ?? 0 : metodo === 'efectivo' ? 0 : total,
         montoRecibido: metodo === 'efectivo' ? recibidoNum : null,
         nroComprobante: metodo === 'efectivo' ? '' : comprobante,
-        nombreCliente: nombre,
-        telefonoCliente: telefono,
+        nombreCliente: nombre.trim(),
+        telefonoCliente: telefono.trim(),
       });
       if (msg) setError(msg);
     });
@@ -144,6 +153,7 @@ function Contenido({
               aria-checked={metodo === m.id}
               onClick={() => {
                 setMetodo(m.id);
+                setComprobante((c) => limpiarNroOperacion(c, m.id));
                 setError(null);
               }}
               className={cn(
@@ -240,26 +250,56 @@ function Contenido({
             <input
               id="cobro-comp"
               value={comprobante}
-              maxLength={64}
+              maxLength={30}
               autoComplete="off"
-              onChange={(e) => setComprobante(e.target.value)}
-              className="input num"
+              inputMode={metodo === 'transferencia_alias' ? 'numeric' : 'text'}
+              onChange={(e) => setComprobante(limpiarNroOperacion(e.target.value, metodo))}
+              className={cn('input num', comprobante && errorComprobante && 'input-error')}
               placeholder={metodo === 'tarjeta_postnet' ? 'CUP-10492' : '89452301'}
+              aria-invalid={!!(comprobante && errorComprobante)}
               data-autofocus={metodo !== 'combinado' ? true : undefined}
             />
+            {comprobante && errorComprobante && <ErrorCampo>{errorComprobante}</ErrorCampo>}
           </div>
         )}
 
-        <details className="group rounded-xl border border-slate-200 dark:border-white/[0.08]">
-          <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-xs font-semibold text-slate-600 dark:text-slate-400">
-            <span className="flex items-center gap-2"><Icon name="whatsapp" size={15} /> Datos del cliente (opcional)</span>
-            <Icon name="chevronDown" size={15} className="transition-transform duration-200 group-open:rotate-180" />
-          </summary>
-          <div className="grid gap-3 px-4 pb-4 sm:grid-cols-2">
-            <input value={telefono} onChange={(e) => setTelefono(e.target.value)} className="input num" inputMode="tel" placeholder="WhatsApp: 2622 662044" maxLength={30} />
-            <input value={nombre} onChange={(e) => setNombre(e.target.value)} className="input" placeholder="Nombre" maxLength={80} />
+        <fieldset className="rounded-xl border border-slate-200 p-4 dark:border-white/[0.08]">
+          <legend className="flex items-center gap-2 px-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
+            <Icon name="users" size={14} /> Datos del cliente
+            <span className="font-normal text-slate-400">(opcional · salen en el comprobante)</span>
+          </legend>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label htmlFor="cobro-nombre" className="label">Nombre y apellido</label>
+              <input
+                id="cobro-nombre"
+                value={nombre}
+                onChange={(e) => setNombre(limpiarNombreCliente(e.target.value))}
+                className={cn('input', errorNombre && 'input-error')}
+                placeholder="Juan Pérez"
+                autoComplete="off"
+                maxLength={80}
+                aria-invalid={!!errorNombre}
+              />
+              {errorNombre && <ErrorCampo>{errorNombre}</ErrorCampo>}
+            </div>
+            <div>
+              <label htmlFor="cobro-tel" className="label">WhatsApp</label>
+              <input
+                id="cobro-tel"
+                value={telefono}
+                onChange={(e) => setTelefono(limpiarTelefono(e.target.value))}
+                className={cn('input num', errorTelefono && 'input-error')}
+                inputMode="tel"
+                placeholder="2622 662044"
+                autoComplete="off"
+                maxLength={20}
+                aria-invalid={!!errorTelefono}
+              />
+              {errorTelefono && <ErrorCampo>{errorTelefono}</ErrorCampo>}
+            </div>
           </div>
-        </details>
+        </fieldset>
 
         {error && (
           <p role="alert" className="flex items-start gap-2 rounded-xl bg-red-500/10 p-3 text-xs font-medium text-red-700 dark:text-red-300">
@@ -277,4 +317,8 @@ function Contenido({
       </ModalFooter>
     </form>
   );
+}
+
+function ErrorCampo({ children }: { children: React.ReactNode }) {
+  return <p className="mt-1.5 text-[11px] font-medium text-red-600 dark:text-red-400">{children}</p>;
 }

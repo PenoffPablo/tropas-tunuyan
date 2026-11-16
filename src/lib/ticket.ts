@@ -35,12 +35,111 @@ export function formatearTelefonoVisual(tel: string): string {
   return `+54 9 ${resto.slice(0, 4)} ${resto.slice(4, 6)}-${resto.slice(6)}`;
 }
 
+/* ── Validación de los datos que se cargan al cobrar ─────────────────────── */
+
+/** Al tipear el nombre: solo letras (con acentos), espacios, apóstrofo, punto y guion. */
+export function limpiarNombreCliente(s: string): string {
+  return s.replace(/[^\p{L}\s'.-]/gu, '').replace(/\s{2,}/g, ' ').trimStart();
+}
+
+/** null si es válido (vacío = opcional). */
+export function validarNombreCliente(nombre: string): string | null {
+  const n = nombre.trim();
+  if (!n) return null;
+  if (!/^[\p{L}][\p{L}\s'.-]*$/u.test(n)) return 'El nombre solo puede tener letras.';
+  if ((n.match(/\p{L}/gu) ?? []).length < 2) return 'El nombre debe tener al menos 2 letras.';
+  return null;
+}
+
+/** Al tipear el teléfono: dígitos y separadores habituales. */
+export function limpiarTelefono(s: string): string {
+  return s.replace(/[^\d+\s()-]/g, '');
+}
+
+/** null si es válido (vacío = opcional). */
+export function validarTelefonoCliente(tel: string): string | null {
+  if (!tel.trim()) return null;
+  return sanitizarTelefonoWhatsApp(tel) ? null : 'Teléfono inválido: ingresá código de área y número (ej. 2622 662044).';
+}
+
+/**
+ * Al tipear el comprobante del pago digital. La transferencia lleva solo
+ * números; el cupón de Postnet y el pago combinado admiten letras y guiones.
+ */
+export function limpiarNroOperacion(s: string, metodo: MetodoPagoTipo): string {
+  return metodo === 'transferencia_alias' ? s.replace(/\D/g, '') : s.toUpperCase().replace(/[^A-Z0-9-]/g, '');
+}
+
+/** null si es válido. `requerido` = false permite dejarlo vacío (pago combinado). */
+export function validarNroOperacion(valor: string, metodo: MetodoPagoTipo, requerido: boolean): string | null {
+  const v = valor.trim();
+  if (!v) {
+    if (!requerido) return null;
+    return metodo === 'tarjeta_postnet' ? 'Ingresá el número de cupón del Postnet.' : 'Ingresá el número de operación de la transferencia.';
+  }
+  if (metodo === 'transferencia_alias') {
+    return /^\d{4,30}$/.test(v) ? null : 'El N.º de operación debe tener solo números (mínimo 4 dígitos).';
+  }
+  if (!/^[A-Z0-9-]{3,30}$/.test(v) || (v.match(/\d/g) ?? []).length < 3) {
+    return metodo === 'tarjeta_postnet'
+      ? 'El cupón debe tener al menos 3 números (puede incluir letras y guiones).'
+      : 'El N.º de operación debe tener al menos 3 números.';
+  }
+  return null;
+}
+
 export const NOMBRE_METODO_PAGO: Record<MetodoPagoTipo, string> = {
   efectivo: 'Efectivo',
   transferencia_alias: 'Mercado Pago / Transferencia',
   tarjeta_postnet: 'Tarjeta (Postnet)',
   combinado: 'Pago combinado',
 };
+
+type Fila = [string, string];
+
+/**
+ * Contenido del comprobante A4. Lo usan el PDF (pdfTicket.ts) y la vista
+ * previa del POS, así ambos muestran siempre lo mismo.
+ */
+export function datosComprobante(venta: VentaConDetalles, whatsappTienda: string, urlSitio: string) {
+  const tel = venta.telefono_cliente ? formatearTelefonoVisual(venta.telefono_cliente) || venta.telefono_cliente : '';
+  // La tarjeta del cliente solo aparece si se cargó algún dato al cobrar.
+  const cliente: Fila[] = [];
+  if (venta.nombre_cliente) cliente.push(['Nombre', venta.nombre_cliente]);
+  if (tel) cliente.push(['Teléfono', tel]);
+
+  const operacion: Fila[] = [
+    // cajero_nombre es "Nombre (Puesto)": en el comprobante alcanza con el nombre.
+    ['Atendido por', venta.cajero_nombre.replace(/\s*\([^)]*\)\s*$/, '') || venta.cajero_nombre],
+    ['Medio de pago', NOMBRE_METODO_PAGO[venta.metodo_pago]],
+  ];
+  if (venta.nro_comprobante_digital) operacion.push(['N.º de operación', venta.nro_comprobante_digital]);
+
+  const pago: Fila[] = [];
+  if (venta.metodo_pago === 'combinado') {
+    pago.push(['Efectivo', formatPrecio(venta.monto_efectivo)], ['Digital', formatPrecio(venta.monto_digital)]);
+  }
+  if (venta.metodo_pago === 'efectivo' && venta.monto_recibido !== null) pago.push(['Recibido', formatPrecio(venta.monto_recibido)]);
+  if (venta.vuelto > 0) pago.push(['Vuelto', formatPrecio(venta.vuelto)]);
+
+  const contacto: string[] = [];
+  if (whatsappTienda !== '5492622000000') {
+    const t = formatearTelefonoVisual(whatsappTienda);
+    if (t) contacto.push(`WhatsApp ${t}`);
+  }
+  if (urlSitio) contacto.push(urlSitio.replace(/^https?:\/\//, ''));
+
+  return {
+    cliente,
+    operacion,
+    pago,
+    contacto,
+    unidades: venta.detalles.reduce((s, d) => s + d.cantidad, 0),
+  };
+}
+
+export const GRACIAS_COMPROBANTE = '¡Gracias por su compra!';
+export const LEYENDA_COMPROBANTE = 'Comprobante no fiscal de control interno. Conservalo para cambios y garantías.';
 
 export function textoTicketWhatsApp(venta: VentaConDetalles): string {
   const l: string[] = [

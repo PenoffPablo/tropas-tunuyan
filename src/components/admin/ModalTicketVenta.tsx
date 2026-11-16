@@ -12,6 +12,7 @@ import type { VentaConDetalles } from '@/types/database';
 import Modal, { ModalBody, ModalFooter, ModalHeader } from '@/components/ui/Modal';
 import Icon from '@/components/ui/Icon';
 import Spinner from '@/components/ui/Spinner';
+import VistaComprobante from '@/components/admin/VistaComprobante';
 import { copiarAlPortapapeles } from '@/lib/finanzas';
 import { getSupabaseBrowser } from '@/lib/supabase';
 import { TIENDA } from '@/lib/config';
@@ -19,7 +20,9 @@ import {
   NOMBRE_METODO_PAGO,
   abrirEnPestana,
   entregarArchivo,
+  GRACIAS_COMPROBANTE,
   formatearTelefonoVisual,
+  limpiarTelefono,
   mensajeComprobanteWhatsApp,
   textoTicketWhatsApp,
   urlComprobante,
@@ -116,8 +119,11 @@ function Contenido({ venta, onNuevaVenta }: { venta: VentaConDetalles; onNuevaVe
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto bg-slate-100/60 px-4 py-5 dark:bg-black/30 sm:px-6">
-        {/* Ticket térmico (lo único que se imprime) */}
-        <div className="print-area mx-auto max-w-[320px] rounded-lg bg-white px-5 py-6 font-mono text-[11px] leading-relaxed text-zinc-900 shadow-soft-lg">
+        {/* Vista previa: la misma hoja A4 que el PDF / enlace de WhatsApp */}
+        <VistaComprobante venta={venta} />
+
+        {/* Ticket térmico 80 mm: no se ve en pantalla, es lo único que sale con "Imprimir" */}
+        <div className="print-area hidden max-w-[320px] print:block rounded-lg bg-white px-5 py-6 font-mono text-[11px] leading-relaxed text-zinc-900 shadow-soft-lg">
           <div className="border-b border-dashed border-zinc-300 pb-3 text-center">
             <div className="text-sm font-bold tracking-wider">TROPAS TUNUYÁN</div>
             <div className="text-[10px] text-zinc-500">Indumentaria Militar & Equipamiento Táctico</div>
@@ -165,7 +171,7 @@ function Contenido({ venta, onNuevaVenta }: { venta: VentaConDetalles; onNuevaVe
             </div>
           )}
           <div className="pt-3 text-center text-[10px] text-zinc-500">
-            <div className="font-bold text-zinc-800">¡GRACIAS POR SU ELECCIÓN!</div>
+            <div className="font-bold uppercase text-zinc-800">{GRACIAS_COMPROBANTE}</div>
             Comprobante no fiscal de control interno.
           </div>
         </div>
@@ -179,11 +185,11 @@ function Contenido({ venta, onNuevaVenta }: { venta: VentaConDetalles; onNuevaVe
           <div className="flex gap-2">
             <input
               value={telefono}
-              onChange={(e) => setTelefono(e.target.value)}
+              onChange={(e) => setTelefono(limpiarTelefono(e.target.value))}
               inputMode="tel"
               placeholder="2622 662044"
               className="input num"
-              maxLength={30}
+              maxLength={20}
             />
             <button type="button" onClick={copiar} className="btn-secondary btn-icon h-10 w-10 shrink-0" aria-label="Copiar mensaje con el enlace">
               <Icon name="copy" size={15} />

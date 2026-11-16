@@ -226,11 +226,11 @@ test('acceso: cada vendedor ve y opera solo lo suyo; inactivo o sin vínculo no 
 const venta = (items, extra = {}) => {
   const p = {
     turno: turno, items: JSON.stringify(items), metodo: 'efectivo', ef: null, dig: null, recibido: null,
-    comp: null, cred: null, total: null, key: crypto.randomUUID(), ...extra,
+    comp: null, nombre: null, tel: null, cred: null, total: null, key: crypto.randomUUID(), ...extra,
   };
   return q(
-    `select procesar_venta_pos($1, $2::jsonb, $3, $4, $5, $6, $7, null, null, $8::jsonb, $9, $10) as v`,
-    [p.turno, p.items, p.metodo, p.ef, p.dig, p.recibido, p.comp, p.cred, p.total, p.key]
+    `select procesar_venta_pos($1, $2::jsonb, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12) as v`,
+    [p.turno, p.items, p.metodo, p.ef, p.dig, p.recibido, p.comp, p.nombre, p.tel, p.cred, p.total, p.key]
   ).then((r) => r[0].v);
 };
 
@@ -266,12 +266,29 @@ test('venta: rechaza stock insuficiente, cantidades inválidas y exige credencia
     const cred = { fuerza_institucion: 'Policía', legajo: 'A1', declaracion_jurada: true, pin_operador: '0000' };
     await falla(venta([{ variante_id: varCred, cantidad: 1 }], { cred: JSON.stringify(cred) }), /PIN del operador/);
     const ok = await venta([{ variante_id: varCred, cantidad: 1 }], {
-      metodo: 'combinado', ef: 40000, dig: 60000, comp: 'OP-1',
+      metodo: 'combinado', ef: 40000, dig: 60000, comp: 'OP-123', nombre: "José O'Neil Peña", tel: '2622 15-662044',
       cred: JSON.stringify({ ...cred, pin_operador: '1234' }),
     });
     assert.equal(ok.credencial_verificada, true);
     assert.equal(ok.credencial_verificada_por, kevin);
+    assert.equal(ok.nombre_cliente, "José O'Neil Peña");
     await falla(venta([{ variante_id: varM, cantidad: 1 }], { metodo: 'combinado', ef: 1, dig: 1 }), /no coincide/);
+  });
+});
+
+test('venta: valida N.º de operación, nombre y teléfono del cliente', async () => {
+  await como(VEND, async () => {
+    const item = [{ variante_id: varM, cantidad: 1 }];
+    const transf = { metodo: 'transferencia_alias' };
+    await falla(venta(item, { ...transf, comp: 'abcdef' }), /solo números/);
+    await falla(venta(item, { ...transf, comp: '123' }), /solo números/);
+    await falla(venta(item, { metodo: 'tarjeta_postnet', comp: 'ABC' }), /al menos 3 números/);
+    await falla(venta(item, { metodo: 'tarjeta_postnet', comp: 'cup-123' }), /al menos 3 números/);
+    await falla(venta(item, { metodo: 'combinado', ef: 20000, dig: 20000, comp: 'OP-1' }), /al menos 3 números/);
+    await falla(venta(item, { nombre: '12345' }), /solo puede tener letras/);
+    await falla(venta(item, { nombre: 'J' }), /solo puede tener letras/);
+    await falla(venta(item, { tel: '123' }), /Teléfono del cliente inválido/);
+    await falla(venta(item, { tel: '26ab22' }), /Teléfono del cliente inválido/);
   });
 });
 

@@ -10,7 +10,7 @@ import { jsPDF } from 'jspdf';
 import type { VentaConDetalles } from '@/types/database';
 import { TIENDA } from './config';
 import { formatFechaHora, formatPrecio } from './utils';
-import { NOMBRE_METODO_PAGO, formatearTelefonoVisual } from './ticket';
+import { GRACIAS_COMPROBANTE, LEYENDA_COMPROBANTE, NOMBRE_METODO_PAGO, datosComprobante } from './ticket';
 import { LOGO_PDF } from './logoPdf';
 
 type RGB = [number, number, number];
@@ -115,10 +115,10 @@ export function generarTicketPdf(venta: VentaConDetalles, logo: string | null = 
   let y = ALTO_CAB + 10;
   const anchoTarjeta = (ANCHO_UTIL - 6) / 2;
 
-  const tarjeta = (x: number, titulo: string, filas: [string, string][]) => {
+  const tarjeta = (x: number, titulo: string, filas: [string, string][], ancho: number) => {
     const alto = 11 + filas.length * 5.6;
     relleno(C.fondo);
-    doc.roundedRect(x, y, anchoTarjeta, alto, 2.5, 2.5, 'F');
+    doc.roundedRect(x, y, ancho, alto, 2.5, 2.5, 'F');
     color(C.militarOscuro);
     fuente(7, true);
     texto(titulo, x + 5, y + 6.5, { espaciado: 0.5 });
@@ -129,25 +129,18 @@ export function generarTicketPdf(venta: VentaConDetalles, logo: string | null = 
       texto(etq, x + 5, yy);
       color(C.texto);
       fuente(9, true);
-      doc.text(recortar(val, anchoTarjeta - 40), x + anchoTarjeta - 5, yy, { align: 'right' });
+      doc.text(recortar(val, ancho - 40), x + ancho - 5, yy, { align: 'right' });
     });
     return alto;
   };
 
-  const telCliente = venta.telefono_cliente ? formatearTelefonoVisual(venta.telefono_cliente) || venta.telefono_cliente : '';
-  const filasCliente: [string, string][] = [['Nombre', venta.nombre_cliente || 'Consumidor final']];
-  if (telCliente) filasCliente.push(['Teléfono', telCliente]);
-  const filasOperacion: [string, string][] = [
-    // cajero_nombre es "Nombre (Puesto)": en el comprobante alcanza con el nombre.
-    ['Atendido por', venta.cajero_nombre.replace(/\s*\([^)]*\)\s*$/, '') || venta.cajero_nombre],
-    ['Medio de pago', NOMBRE_METODO_PAGO[venta.metodo_pago]],
-  ];
-  if (venta.nro_comprobante_digital) filasOperacion.push(['N.º de operación', venta.nro_comprobante_digital]);
+  const datos = datosComprobante(venta, TIENDA.whatsapp, TIENDA.urlSitio);
+  const filasCliente = datos.cliente;
+  const filasOperacion = datos.operacion;
 
-  const altoTarjetas = Math.max(
-    tarjeta(M, 'CLIENTE', filasCliente),
-    tarjeta(M + anchoTarjeta + 6, 'OPERACIÓN', filasOperacion)
-  );
+  const altoTarjetas = filasCliente.length
+    ? Math.max(tarjeta(M, 'CLIENTE', filasCliente, anchoTarjeta), tarjeta(M + anchoTarjeta + 6, 'OPERACIÓN', filasOperacion, anchoTarjeta))
+    : tarjeta(M, 'OPERACIÓN', filasOperacion, ANCHO_UTIL);
   y += altoTarjetas + 10;
 
   /* ── Detalle de artículos ───────────────────────────────────────────── */
@@ -216,12 +209,7 @@ export function generarTicketPdf(venta: VentaConDetalles, logo: string | null = 
   });
 
   /* ── Pago y totales ─────────────────────────────────────────────────── */
-  const filasPago: [string, string][] = [];
-  if (venta.metodo_pago === 'combinado') {
-    filasPago.push(['Efectivo', formatPrecio(venta.monto_efectivo)], ['Digital', formatPrecio(venta.monto_digital)]);
-  }
-  if (venta.metodo_pago === 'efectivo' && venta.monto_recibido !== null) filasPago.push(['Recibido', formatPrecio(venta.monto_recibido)]);
-  if (venta.vuelto > 0) filasPago.push(['Vuelto', formatPrecio(venta.vuelto)]);
+  const filasPago = datos.pago;
   const altoCredencial = venta.exigio_credencial ? 32 : 0;
   const altoResumen = 30 + filasPago.length * 5.5 + altoCredencial;
   if (y + 8 + altoResumen > A4.alto - PIE) {
@@ -231,7 +219,7 @@ export function generarTicketPdf(venta: VentaConDetalles, logo: string | null = 
     y += 8;
   }
 
-  const unidades = venta.detalles.reduce((s, d) => s + d.cantidad, 0);
+  const unidades = datos.unidades;
   const anchoTotales = 78;
   const xTot = A4.ancho - M - anchoTotales;
 
@@ -290,12 +278,7 @@ export function generarTicketPdf(venta: VentaConDetalles, logo: string | null = 
 
   /* ── Pie (todas las páginas) ────────────────────────────────────────── */
   const paginas = doc.getNumberOfPages();
-  const contacto: string[] = [];
-  if (TIENDA.whatsapp !== '5492622000000') {
-    const tel = formatearTelefonoVisual(TIENDA.whatsapp);
-    if (tel) contacto.push(`WhatsApp ${tel}`);
-  }
-  if (TIENDA.urlSitio) contacto.push(TIENDA.urlSitio.replace(/^https?:\/\//, ''));
+  const contacto = datos.contacto;
 
   for (let p = 1; p <= paginas; p++) {
     doc.setPage(p);
@@ -303,14 +286,14 @@ export function generarTicketPdf(venta: VentaConDetalles, logo: string | null = 
     if (p === paginas) {
       color(C.militarOscuro);
       fuente(11, true);
-      texto('¡Gracias por su elección!', A4.ancho / 2, yPie - 4, { align: 'center' });
+      texto(GRACIAS_COMPROBANTE, A4.ancho / 2, yPie - 4, { align: 'center' });
     }
     trazo(C.linea);
     doc.setLineWidth(0.3);
     doc.line(M, yPie, A4.ancho - M, yPie);
     color(C.suave);
     fuente(7.5);
-    texto('Comprobante no fiscal de control interno. Conservalo para cambios y garantías.', M, yPie + 5);
+    texto(LEYENDA_COMPROBANTE, M, yPie + 5);
     if (contacto.length) texto(contacto.join('  ·  '), M, yPie + 9.5);
     texto(`${venta.numero_ticket}  ·  Página ${p} de ${paginas}`, A4.ancho - M, yPie + 5, { align: 'right' });
   }
