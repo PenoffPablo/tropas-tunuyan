@@ -80,29 +80,22 @@ export function urlWhatsApp(telefono: string, texto: string): string {
   return `https://api.whatsapp.com/send?${q.toString()}`;
 }
 
-/**
- * Entrega un PDF sin popups:
- *  1. Móvil con Web Share API de archivos (iOS Safari ≥15, Chrome Android):
- *     hoja nativa de compartir → WhatsApp, Drive, imprimir, guardar.
- *  2. Resto: descarga directa con <a download> sobre un Object URL.
- * Debe llamarse de forma SINCRÓNICA dentro del gesto del usuario (sin awaits
- * previos) para conservar la "activación transitoria" que exige Safari.
- */
-export async function entregarArchivo(blob: Blob, nombre: string): Promise<'compartido' | 'descargado' | 'cancelado'> {
-  const archivo = new File([blob], nombre, { type: blob.type || 'application/pdf' });
+/** Mensaje que acompaña al PDF del comprobante en WhatsApp. */
+export function mensajeComprobanteWhatsApp(venta: VentaConDetalles): string {
+  const saludo = venta.nombre_cliente ? `¡Hola ${venta.nombre_cliente.split(/\s+/)[0]}!` : '¡Hola!';
+  return `${saludo} Te enviamos el comprobante de tu compra en *Tropas Tunuyán* (${venta.numero_ticket}) por *${formatPrecio(venta.total)}*. ¡Gracias por elegirnos!`;
+}
+
+/** Hay hoja nativa de compartir con archivos (celulares y tablets). */
+export function puedeCompartirArchivo(archivo: File): boolean {
+  if (typeof window === 'undefined') return false;
   const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
-  const esTactil = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
+  const esTactil = window.matchMedia?.('(pointer: coarse)').matches;
+  return !!esTactil && typeof nav.share === 'function' && !!nav.canShare?.({ files: [archivo] });
+}
 
-  if (esTactil && typeof nav.share === 'function' && nav.canShare?.({ files: [archivo] })) {
-    try {
-      await nav.share({ files: [archivo], title: nombre });
-      return 'compartido';
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return 'cancelado';
-      // NotAllowedError u otro: cae a la descarga
-    }
-  }
-
+/** Descarga directa con <a download> (sin popups). */
+export function descargarArchivo(archivo: Blob, nombre: string): void {
   const url = URL.createObjectURL(archivo);
   const a = document.createElement('a');
   a.href = url;
@@ -113,5 +106,68 @@ export async function entregarArchivo(blob: Blob, nombre: string): Promise<'comp
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/** Abre un enlace en otra pestaña. Llamar dentro del gesto del usuario. */
+export function abrirEnPestana(url: string): void {
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/**
+ * Envía el comprobante PDF por WhatsApp de la forma más directa que permite
+ * cada dispositivo (una web no puede adjuntar archivos a WhatsApp por enlace):
+ *  · Celular/tablet: hoja nativa de compartir con el PDF adjunto → WhatsApp.
+ *  · Computadora: descarga el PDF y abre el chat del cliente en WhatsApp Web
+ *    con el mensaje listo; solo resta arrastrar el archivo.
+ * SINCRÓNICA hasta el share/descarga: llamarla directo desde el clic.
+ */
+export async function enviarComprobanteWhatsApp(params: {
+  pdf: Blob;
+  nombre: string;
+  telefono: string;
+  mensaje: string;
+}): Promise<'compartido' | 'cancelado' | 'descargado_y_abierto'> {
+  const archivo = new File([params.pdf], params.nombre, { type: 'application/pdf' });
+  if (puedeCompartirArchivo(archivo)) {
+    try {
+      await navigator.share({ files: [archivo], text: params.mensaje, title: params.nombre });
+      return 'compartido';
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return 'cancelado';
+      // Otro error: cae a descarga + WhatsApp
+    }
+  }
+  descargarArchivo(archivo, params.nombre);
+  abrirEnPestana(urlWhatsApp(params.telefono, params.mensaje));
+  return 'descargado_y_abierto';
+}
+
+/**
+ * Entrega un PDF sin popups:
+ *  1. Móvil con Web Share API de archivos (iOS Safari ≥15, Chrome Android):
+ *     hoja nativa de compartir → WhatsApp, Drive, imprimir, guardar.
+ *  2. Resto: descarga directa con <a download> sobre un Object URL.
+ * Debe llamarse de forma SINCRÓNICA dentro del gesto del usuario (sin awaits
+ * previos) para conservar la "activación transitoria" que exige Safari.
+ */
+export async function entregarArchivo(blob: Blob, nombre: string): Promise<'compartido' | 'descargado' | 'cancelado'> {
+  const archivo = new File([blob], nombre, { type: blob.type || 'application/pdf' });
+  if (puedeCompartirArchivo(archivo)) {
+    try {
+      await navigator.share({ files: [archivo], title: nombre });
+      return 'compartido';
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return 'cancelado';
+      // NotAllowedError u otro: cae a la descarga
+    }
+  }
+  descargarArchivo(archivo, nombre);
   return 'descargado';
 }
