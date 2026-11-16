@@ -394,6 +394,8 @@ export type Database = {
         Returns: undefined;
       };
       abrir_mi_turno: { Args: { p_monto_apertura: number; p_caja?: string }; Returns: TurnoCaja };
+      crear_enlace_comprobante: { Args: { p_venta_id: string }; Returns: string };
+      comprobante_por_token: { Args: { p_token: string }; Returns: Json | null };
       abrir_turno: {
         Args: { p_empleado_id: string; p_pin: string; p_monto_apertura: number; p_caja?: string };
         Returns: TurnoCaja;

@@ -12,13 +12,16 @@ import { unaccent } from '@electric-sql/pglite/contrib/unaccent';
 
 const leer = (ruta) => readFileSync(new URL(`../../${ruta}`, import.meta.url), 'utf8');
 
-test('migración 07: aplicable sobre una base desplegada y repetible', async () => {
+test('migraciones 07 + 08: aplicables sobre una base desplegada y repetible', async () => {
   const db = new PGlite({ extensions: { pgcrypto, pg_trgm, unaccent } });
   await db.exec(leer('tests/db/supabase_stub.sql'));
   await db.exec(leer('database/schema.sql'));
   await db.exec(leer('database/seed.sql'));
   for (let i = 0; i < 2; i++) {
-    await db.transaction((tx) => tx.exec(leer('database/migraciones/20261116_07_acceso_empleados.sql')));
+    await db.transaction(async (tx) => {
+      await tx.exec(leer('database/migraciones/20261116_07_acceso_empleados.sql'));
+      await tx.exec(leer('database/migraciones/20261116_08_enlaces_comprobante.sql'));
+    });
   }
 
   const VEND = { sub: '22222222-2222-2222-2222-222222222222', app_metadata: { rol: 'vendedor' } };

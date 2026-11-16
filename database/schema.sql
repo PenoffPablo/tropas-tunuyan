@@ -1130,6 +1130,75 @@ grant execute on function public.ranking_productos(timestamptz) to authenticated
 grant execute on function public.costos_catalogo() to authenticated;
 
 -- ────────────────────────────────────────────────────────────────────────────
+-- 8b. ENLACES PARA COMPARTIR EL COMPROBANTE (/c/<token>, PDF generado al vuelo)
+-- ────────────────────────────────────────────────────────────────────────────
+create table if not exists public.enlaces_comprobante (
+  token      text primary key constraint enlaces_comprobante_token_valido check (token ~ '^[A-Za-z0-9_-]{22}$'),
+  venta_id   uuid not null references public.ventas(id) on delete cascade,
+  created_by uuid default auth.uid(),
+  created_at timestamptz not null default now(),
+  expira_at  timestamptz not null default now() + interval '90 days'
+);
+create index if not exists idx_enlaces_comprobante_venta on public.enlaces_comprobante (venta_id, expira_at desc);
+
+alter table public.enlaces_comprobante enable row level security;
+revoke all on public.enlaces_comprobante from anon, authenticated;
+
+-- Devuelve un enlace vigente de la venta (reutiliza el existente si le quedan
+-- más de 30 días). El vendedor solo puede pedirlo para sus propias ventas.
+create or replace function public.crear_enlace_comprobante(p_venta_id uuid)
+returns text language plpgsql security definer set search_path = '' as $$
+declare
+  v_empleado uuid;
+  v_token text;
+begin
+  if not private.es_staff() then
+    raise exception 'No autorizado' using errcode = '42501';
+  end if;
+  select empleado_id into v_empleado from public.ventas where id = p_venta_id;
+  if not found or (not private.es_admin() and v_empleado is distinct from private.empleado_actual_id()) then
+    raise exception 'Venta inexistente';
+  end if;
+  select token into v_token
+    from public.enlaces_comprobante
+   where venta_id = p_venta_id and expira_at > now() + interval '30 days'
+   order by expira_at desc
+   limit 1;
+  if v_token is not null then
+    return v_token;
+  end if;
+  -- 128 bits aleatorios en base64url (22 caracteres).
+  v_token := rtrim(translate(encode(extensions.gen_random_bytes(16), 'base64'), '+/', '-_'), '=');
+  insert into public.enlaces_comprobante (token, venta_id) values (v_token, p_venta_id);
+  return v_token;
+end;
+$$;
+
+-- Lectura pública por token (la usa la ruta /c/<token>). NULL si no existe o venció.
+create or replace function public.comprobante_por_token(p_token text)
+returns jsonb language plpgsql stable security definer set search_path = '' as $$
+declare
+  v_venta uuid;
+begin
+  if p_token is null or p_token !~ '^[A-Za-z0-9_-]{22}$' then
+    return null;
+  end if;
+  select venta_id into v_venta
+    from public.enlaces_comprobante
+   where token = p_token and expira_at > now();
+  if v_venta is null then
+    return null;
+  end if;
+  return private.venta_json(v_venta);
+end;
+$$;
+
+revoke all on function public.crear_enlace_comprobante(uuid) from public, anon;
+revoke all on function public.comprobante_por_token(text) from public;
+grant execute on function public.crear_enlace_comprobante(uuid) to authenticated;
+grant execute on function public.comprobante_por_token(text) to anon, authenticated;
+
+-- ────────────────────────────────────────────────────────────────────────────
 -- 9. STORAGE: bucket 'productos' (lectura pública por URL, escritura admin)
 -- ────────────────────────────────────────────────────────────────────────────
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)

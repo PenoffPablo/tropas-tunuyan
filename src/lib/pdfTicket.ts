@@ -3,15 +3,15 @@
  * Módulo pesado: solo se importa dinámicamente desde ModalTicketVenta.
  *
  * La generación es SINCRÓNICA a propósito: así se puede llamar dentro del
- * gesto del usuario (clic) y enseguida compartir/descargar sin perder la
- * "activación transitoria" que exige Safari. Lo asíncrono (el logo) se
- * prepara antes con cargarLogoPdf().
+ * gesto del usuario (clic) y enseguida descargar sin perder la "activación
+ * transitoria" que exige Safari. También corre en el servidor (ruta /c/[token]).
  */
 import { jsPDF } from 'jspdf';
 import type { VentaConDetalles } from '@/types/database';
 import { TIENDA } from './config';
 import { formatFechaHora, formatPrecio } from './utils';
 import { NOMBRE_METODO_PAGO, formatearTelefonoVisual } from './ticket';
+import { LOGO_PDF } from './logoPdf';
 
 type RGB = [number, number, number];
 
@@ -42,36 +42,11 @@ function t(s: string): string {
     .replace(/[^\x20-\xFF]/g, '');
 }
 
-/**
- * Logo reducido (≈ 30 KB en vez de ~1 MB del PNG original) como data URL.
- * null si no se pudo cargar: el PDF se genera igual, sin logo.
- */
-export async function cargarLogoPdf(): Promise<string | null> {
-  try {
-    const img = new Image();
-    img.decoding = 'async';
-    img.src = '/logo.png';
-    await img.decode();
-    const lado = 240;
-    const canvas = document.createElement('canvas');
-    canvas.width = lado;
-    canvas.height = lado;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, lado, lado);
-    ctx.drawImage(img, 0, 0, lado, lado);
-    return canvas.toDataURL('image/jpeg', 0.88);
-  } catch {
-    return null;
-  }
-}
-
 export function nombreArchivoComprobante(venta: VentaConDetalles): string {
   return `Comprobante-${venta.numero_ticket}.pdf`;
 }
 
-export function generarTicketPdf(venta: VentaConDetalles, logo: string | null = null): Blob {
+export function generarTicketPdf(venta: VentaConDetalles, logo: string | null = LOGO_PDF): ArrayBuffer {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
   doc.setProperties({
     title: `Comprobante ${venta.numero_ticket} - ${TIENDA.nombre}`,
@@ -340,5 +315,5 @@ export function generarTicketPdf(venta: VentaConDetalles, logo: string | null = 
     texto(`${venta.numero_ticket}  ·  Página ${p} de ${paginas}`, A4.ancho - M, yPie + 5, { align: 'right' });
   }
 
-  return doc.output('blob');
+  return doc.output('arraybuffer');
 }

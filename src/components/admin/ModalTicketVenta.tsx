@@ -3,9 +3,9 @@
 /**
  * Ticket post-venta. Se carga con next/dynamic (y jsPDF se precarga en segundo
  * plano al abrir), así el bundle inicial del POS no incluye la librería PDF.
- * Descarga/compartir sin popups: compatible con Safari iOS y Chrome Android.
- * WhatsApp: previa confirmación, envía el comprobante PDF A4 (hoja de compartir
- * en celulares; descarga + chat de WhatsApp Web en computadoras).
+ * WhatsApp: al abrir se crea un enlace privado al comprobante (/c/<token>, el
+ * PDF A4 se genera en el servidor). Tras confirmar, se abre el chat del
+ * cliente con el mensaje y el enlace listos: solo resta tocar Enviar.
  */
 import { useEffect, useRef, useState } from 'react';
 import type { VentaConDetalles } from '@/types/database';
@@ -13,14 +13,16 @@ import Modal, { ModalBody, ModalFooter, ModalHeader } from '@/components/ui/Moda
 import Icon from '@/components/ui/Icon';
 import Spinner from '@/components/ui/Spinner';
 import { copiarAlPortapapeles } from '@/lib/finanzas';
+import { getSupabaseBrowser } from '@/lib/supabase';
+import { TIENDA } from '@/lib/config';
 import {
   NOMBRE_METODO_PAGO,
-  enviarComprobanteWhatsApp,
+  abrirEnPestana,
   entregarArchivo,
   formatearTelefonoVisual,
   mensajeComprobanteWhatsApp,
-  puedeCompartirArchivo,
   textoTicketWhatsApp,
+  urlComprobante,
   urlWhatsApp,
 } from '@/lib/ticket';
 import { formatFechaHora, formatPrecio } from '@/lib/utils';
@@ -42,60 +44,55 @@ function Contenido({ venta, onNuevaVenta }: { venta: VentaConDetalles; onNuevaVe
   const [estado, setEstado] = useState<string | null>(null);
   const [pdfListo, setPdfListo] = useState(false);
   const [confirmando, setConfirmando] = useState(false);
-  const [compartirNativo, setCompartirNativo] = useState(false);
+  const [enlace, setEnlace] = useState<string | null>(null);
+  const [errorEnlace, setErrorEnlace] = useState(false);
   const [enviado, setEnviado] = useState(false);
   const pdfRef = useRef<ModuloPdf | null>(null);
-  const logoRef = useRef<string | null>(null);
 
   useEffect(() => {
     let vivo = true;
-    setCompartirNativo(puedeCompartirArchivo(new File([], 'x.pdf', { type: 'application/pdf' })));
     import('@/lib/pdfTicket')
-      .then(async (m) => {
+      .then((m) => {
         if (!vivo) return;
         pdfRef.current = m;
-        logoRef.current = await m.cargarLogoPdf();
-        if (vivo) setPdfListo(true);
+        setPdfListo(true);
       })
       .catch(() => vivo && setEstado('No se pudo cargar el generador de PDF. Revisá la conexión.'));
+    // Enlace al comprobante: se pide ya, así al confirmar se abre WhatsApp sin esperas
+    // (una espera haría que el navegador bloquee la ventana nueva).
+    getSupabaseBrowser()
+      .rpc('crear_enlace_comprobante', { p_venta_id: venta.id })
+      .then(({ data, error }) => {
+        if (!vivo) return;
+        if (error || !data) return setErrorEnlace(true);
+        setEnlace(urlComprobante(data, TIENDA.urlSitio || window.location.origin));
+      });
     return () => {
       vivo = false;
     };
-  }, []);
+  }, [venta.id]);
 
   const texto = textoTicketWhatsApp(venta);
-  const mensaje = mensajeComprobanteWhatsApp(venta);
+  const mensaje = enlace ? mensajeComprobanteWhatsApp(venta, enlace) : '';
   const telVisual = formatearTelefonoVisual(telefono);
   const nombreArchivo = `Comprobante-${venta.numero_ticket}.pdf`;
 
-  /* Sin awaits antes de compartir/descargar: conserva el gesto del usuario (Safari). */
+  /* Sincrónico desde el clic: el navegador no bloquea la pestaña de WhatsApp. */
   const enviarWhatsApp = () => {
-    const m = pdfRef.current;
-    if (!m) return;
+    if (!enlace) return;
     setConfirmando(false);
-    try {
-      const pdf = m.generarTicketPdf(venta, logoRef.current);
-      void enviarComprobanteWhatsApp({ pdf, nombre: nombreArchivo, telefono, mensaje }).then((r) => {
-        if (r === 'cancelado') return setEstado('Envío cancelado.');
-        setEnviado(true);
-        setEstado(
-          r === 'compartido'
-            ? 'Comprobante compartido.'
-            : `${nombreArchivo} descargado. Arrastralo al chat de WhatsApp y tocá Enviar.`
-        );
-      });
-    } catch {
-      setEstado('No se pudo generar el PDF.');
-    }
+    abrirEnPestana(urlWhatsApp(telefono, mensaje));
+    setEnviado(true);
+    setEstado(telVisual ? `Chat con ${telVisual} abierto: tocá Enviar en WhatsApp.` : 'WhatsApp abierto: elegí el contacto y tocá Enviar.');
   };
 
   const descargarPdf = () => {
     const m = pdfRef.current;
     if (!m) return;
     try {
-      const blob = m.generarTicketPdf(venta, logoRef.current);
+      const blob = new Blob([m.generarTicketPdf(venta)], { type: 'application/pdf' });
       void entregarArchivo(blob, nombreArchivo).then((r) => {
-        if (r === 'compartido') setEstado('Ticket compartido.');
+        if (r === 'compartido') setEstado('Comprobante compartido.');
         else if (r === 'descargado') setEstado(`${nombreArchivo} descargado.`);
       });
     } catch {
@@ -104,7 +101,8 @@ function Contenido({ venta, onNuevaVenta }: { venta: VentaConDetalles; onNuevaVe
   };
 
   const copiar = async () => {
-    setEstado((await copiarAlPortapapeles(texto)) ? 'Texto del ticket copiado.' : 'No se pudo copiar.');
+    const ok = await copiarAlPortapapeles(mensaje || texto);
+    setEstado(ok ? (mensaje ? 'Mensaje con el enlace copiado.' : 'Texto del ticket copiado.') : 'No se pudo copiar.');
   };
 
   return (
@@ -187,15 +185,21 @@ function Contenido({ venta, onNuevaVenta }: { venta: VentaConDetalles; onNuevaVe
               className="input num"
               maxLength={30}
             />
-            <button type="button" onClick={copiar} className="btn-secondary btn-icon h-10 w-10 shrink-0" aria-label="Copiar texto del ticket">
+            <button type="button" onClick={copiar} className="btn-secondary btn-icon h-10 w-10 shrink-0" aria-label="Copiar mensaje con el enlace">
               <Icon name="copy" size={15} />
             </button>
           </div>
-          <button type="button" onClick={() => setConfirmando(true)} disabled={!pdfListo} className="btn-success w-full">
-            {pdfListo ? <Icon name="whatsapp" size={16} /> : <Spinner />} Enviar comprobante PDF por WhatsApp
+          <button type="button" onClick={() => setConfirmando(true)} disabled={!enlace} className="btn-success w-full">
+            {enlace || errorEnlace ? <Icon name="whatsapp" size={16} /> : <Spinner />} Enviar comprobante por WhatsApp
           </button>
+          {errorEnlace && (
+            <p className="flex items-start gap-2 text-[11px] text-red-600 dark:text-red-400">
+              <Icon name="alert" size={13} className="mt-px shrink-0" />
+              No se pudo crear el enlace del comprobante. Podés descargar el PDF y enviarlo a mano.
+            </p>
+          )}
           {estado && <p className="text-center text-[11px] font-medium text-slate-500" role="status">{estado}</p>}
-          {enviado && !compartirNativo && (
+          {enviado && enlace && (
             <a href={urlWhatsApp(telefono, mensaje)} target="_blank" rel="noopener noreferrer" className="block text-center text-[11px] font-semibold text-emerald-700 hover:underline dark:text-emerald-400">
               ¿No se abrió WhatsApp? Abrir el chat de nuevo
             </a>
@@ -233,11 +237,10 @@ function Contenido({ venta, onNuevaVenta }: { venta: VentaConDetalles; onNuevaVe
               </dd>
             </div>
             <div className="flex items-center justify-between gap-3 p-3">
-              <dt className="text-xs text-slate-500">Archivo</dt>
+              <dt className="text-xs text-slate-500">Comprobante</dt>
               <dd className="flex min-w-0 items-center gap-1.5 font-medium text-slate-900 dark:text-white">
                 <Icon name="file" size={14} className="shrink-0 text-red-500" />
-                <span className="truncate">{nombreArchivo}</span>
-                <span className="shrink-0 text-[11px] text-slate-500">A4</span>
+                <span className="truncate">PDF A4 · enlace por 90 días</span>
               </dd>
             </div>
             <div className="flex items-center justify-between gap-3 p-3">
@@ -247,9 +250,9 @@ function Contenido({ venta, onNuevaVenta }: { venta: VentaConDetalles; onNuevaVe
           </dl>
           <p className="flex items-start gap-2 rounded-xl bg-slate-100 p-3 text-xs leading-relaxed text-slate-600 dark:bg-white/[0.04] dark:text-slate-300">
             <Icon name="info" size={14} className="mt-px shrink-0" />
-            {compartirNativo
-              ? 'Se abrirá el menú Compartir con el PDF adjunto: elegí WhatsApp y el chat del cliente.'
-              : 'Se descargará el PDF y se abrirá el chat del cliente en WhatsApp con el mensaje listo. Arrastrá el archivo descargado al chat y enviá.'}
+            {telVisual
+              ? 'Se abrirá WhatsApp en el chat del cliente con el mensaje y el enlace al comprobante listos. Solo tocá Enviar.'
+              : 'Se abrirá WhatsApp con el mensaje y el enlace listos: elegí el contacto y tocá Enviar.'}
           </p>
           {telefono && !telVisual && (
             <p className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400">

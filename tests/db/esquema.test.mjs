@@ -287,6 +287,34 @@ test('arqueo ciego: efectivo esperado incluye egresos y el turno cerrado no vend
   });
 });
 
+test('enlace de comprobante: el vendedor lo crea para su venta; cualquiera con el token lo lee, sin costos', async () => {
+  const { id: ventaId } = await uno(`select id from ventas where empleado_id = $1 limit 1`, [kevin]);
+  let token;
+  await como(VEND, async () => {
+    token = (await uno(`select crear_enlace_comprobante($1) as t`, [ventaId])).t;
+    assert.match(token, /^[A-Za-z0-9_-]{22}$/);
+    assert.equal((await uno(`select crear_enlace_comprobante($1) as t`, [ventaId])).t, token, 'reutiliza el enlace vigente');
+    await falla(q(`select crear_enlace_comprobante(gen_random_uuid())`), /inexistente/);
+  });
+  await como(VEND_SUELTO, async () => {
+    await falla(q(`select crear_enlace_comprobante($1)`, [ventaId]), /No autorizado/);
+  });
+  await como(null, async () => {
+    const c = (await uno(`select comprobante_por_token($1) as c`, [token])).c;
+    assert.equal(c.id, ventaId);
+    assert.ok(c.detalles.length > 0);
+    assert.ok(c.detalles.every((d) => !('costo_unitario' in d)), 'no expone costos');
+    assert.equal((await uno(`select comprobante_por_token('xxxxxxxxxxxxxxxxxxxxxx') as c`)).c, null);
+    assert.equal((await uno(`select comprobante_por_token('no valido') as c`)).c, null);
+    await falla(q(`select * from enlaces_comprobante`), /permission denied/);
+    await falla(q(`select crear_enlace_comprobante($1)`, [ventaId]), /permission denied/);
+  });
+  await q(`update enlaces_comprobante set expira_at = now() - interval '1 minute' where token = $1`, [token]);
+  await como(null, async () => {
+    assert.equal((await uno(`select comprobante_por_token($1) as c`, [token])).c, null, 'vencido');
+  });
+});
+
 test('ranking: ingresos y ganancia por producto con costo por variante', async () => {
   await como(ADMIN, async () => {
     const r = await q(`select * from ranking_productos()`);

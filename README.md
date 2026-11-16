@@ -88,6 +88,7 @@ Tras 5 PIN incorrectos el operador queda bloqueado 5 minutos.
 | Clientes Supabase | `supabase.ts` (navegador con cookies + cliente público para ISR) y `supabase-server.ts` (Server Components con el JWT del usuario). Nada del panel consulta como `anon`. |
 | RLS | `anon` solo lee el catálogo **sin costos ni márgenes** (permisos por columna). Escrituras solo `admin`. Caja: solo `admin`. |
 | RPC `SECURITY DEFINER` | Ventas, turnos, arqueo, PIN y stock se ejecutan solo en PostgreSQL, con el rol validado adentro y `search_path` fijo. |
+| `/c/<token>` | Enlace público del comprobante que se envía por WhatsApp: token aleatorio de 128 bits, vence a los 90 días, el PDF A4 se genera en el servidor (sin archivos guardados) y nunca incluye costos. El vendedor solo puede crear enlaces de sus propias ventas. |
 | `/api/upload` | Sesión admin, ≤ 2 MB, MIME `webp/png/jpeg`, extensión coherente, **firma binaria real**, nombre UUID. Storage sin listado público. |
 | Cabeceras | `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`, HSTS, `noindex` en el panel. |
 

@@ -80,10 +80,21 @@ export function urlWhatsApp(telefono: string, texto: string): string {
   return `https://api.whatsapp.com/send?${q.toString()}`;
 }
 
-/** Mensaje que acompaña al PDF del comprobante en WhatsApp. */
-export function mensajeComprobanteWhatsApp(venta: VentaConDetalles): string {
+/** Mensaje de WhatsApp con el enlace al comprobante PDF. */
+export function mensajeComprobanteWhatsApp(venta: VentaConDetalles, enlace: string): string {
   const saludo = venta.nombre_cliente ? `¡Hola ${venta.nombre_cliente.split(/\s+/)[0]}!` : '¡Hola!';
-  return `${saludo} Te enviamos el comprobante de tu compra en *Tropas Tunuyán* (${venta.numero_ticket}) por *${formatPrecio(venta.total)}*. ¡Gracias por elegirnos!`;
+  return [
+    `${saludo} Gracias por tu compra en *Tropas Tunuyán*.`,
+    `Comprobante ${venta.numero_ticket} · Total *${formatPrecio(venta.total)}*`,
+    '',
+    `📄 Podés ver y descargar tu comprobante acá:`,
+    enlace,
+  ].join('\n');
+}
+
+/** Enlace público al comprobante (/c/<token>) sobre el dominio oficial. */
+export function urlComprobante(token: string, base: string): string {
+  return `${base.replace(/\/+$/, '')}/c/${token}`;
 }
 
 /** Hay hoja nativa de compartir con archivos (celulares y tablets). */
@@ -118,35 +129,6 @@ export function abrirEnPestana(url: string): void {
   document.body.appendChild(a);
   a.click();
   a.remove();
-}
-
-/**
- * Envía el comprobante PDF por WhatsApp de la forma más directa que permite
- * cada dispositivo (una web no puede adjuntar archivos a WhatsApp por enlace):
- *  · Celular/tablet: hoja nativa de compartir con el PDF adjunto → WhatsApp.
- *  · Computadora: descarga el PDF y abre el chat del cliente en WhatsApp Web
- *    con el mensaje listo; solo resta arrastrar el archivo.
- * SINCRÓNICA hasta el share/descarga: llamarla directo desde el clic.
- */
-export async function enviarComprobanteWhatsApp(params: {
-  pdf: Blob;
-  nombre: string;
-  telefono: string;
-  mensaje: string;
-}): Promise<'compartido' | 'cancelado' | 'descargado_y_abierto'> {
-  const archivo = new File([params.pdf], params.nombre, { type: 'application/pdf' });
-  if (puedeCompartirArchivo(archivo)) {
-    try {
-      await navigator.share({ files: [archivo], text: params.mensaje, title: params.nombre });
-      return 'compartido';
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return 'cancelado';
-      // Otro error: cae a descarga + WhatsApp
-    }
-  }
-  descargarArchivo(archivo, params.nombre);
-  abrirEnPestana(urlWhatsApp(params.telefono, params.mensaje));
-  return 'descargado_y_abierto';
 }
 
 /**
