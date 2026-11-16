@@ -43,29 +43,38 @@ Modelo:
 
 ### Usuarios y roles
 
+**Administrador** (se crea a mano, una vez):
+
 1. *Authentication → Users → Add user* (email + contraseña).
 2. Asignar rol en el SQL Editor:
 
 ```sql
 update auth.users
-   set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"rol":"admin"}'   -- o "vendedor"
+   set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"rol":"admin"}'
  where email = 'correo@dominio.com';
 ```
 
 3. El usuario vuelve a iniciar sesión (el rol viaja dentro del JWT).
 
+**Vendedores** (desde el panel, *Turnos & personal*): al dar de alta un empleado se crea su cuenta de Supabase Auth con rol `vendedor` (en `app_metadata`, que el usuario no puede editar) y queda vinculada en `empleados.user_id`. Requiere `SUPABASE_SERVICE_ROLE_KEY` en el servidor.
+
+- Cada empleado entra con un **usuario** (`nombre.apellido`, sin tildes; si existe se agrega un número). Internamente la cuenta usa el email `<usuario>@tropastunuyan.local`, que el empleado nunca ve. En el login, lo que no tenga `@` se completa con ese dominio; el admin sigue entrando con su email.
+- Contraseña inicial definida por el admin o generada (se muestra una sola vez). En el primer ingreso se exige cambiarla (`app_metadata.debe_cambiar_password`).
+- *Crear acceso* para empleados cargados antes, *Resetear contraseña* para los que ya tienen.
+- Dar de baja o desactivar un empleado **bloquea su cuenta** (ban) sin borrarla: el historial de turnos y ventas se conserva. Además la base deja de considerarlo staff.
+
 | Rol | Acceso |
 |---|---|
-| `admin` | Todo: inventario, categorías, finanzas, personal, POS, turnos |
-| `vendedor` | POS, apertura y arqueo de turnos |
+| `admin` | Todo: inventario, categorías, finanzas, personal, POS, turnos (puede abrir un turno a nombre de un empleado con su PIN) |
+| `vendedor` | POS y **sus** turnos: abre el suyo (el empleado sale de la sesión), vende y cierra solo en él; no ve turnos, ventas ni datos de otros. Debe estar vinculado a un empleado activo |
 | (sin rol) | Ninguno: el middleware lo rechaza y RLS no le devuelve datos |
 
 ### Personal y PIN
 
-En **Turnos & personal** el administrador da de alta a cada cajero con un **PIN de 4–6 dígitos** (se guarda con bcrypt; nunca se puede leer). El PIN se usa para:
+Además de su usuario, cada empleado tiene un **PIN de 4–6 dígitos** (se guarda con bcrypt; nunca se puede leer). El PIN se usa para:
 
-- **abrir turno** (identifica al responsable del cajón), y
-- **acreditar ventas reguladas** (el operador firma que constató la credencial del comprador).
+- **acreditar ventas reguladas** (el operador firma que constató la credencial del comprador), y
+- que el **admin abra un turno a nombre de un empleado** (el vendedor abre el suyo con su sesión, sin PIN).
 
 Tras 5 PIN incorrectos el operador queda bloqueado 5 minutos.
 
@@ -127,4 +136,4 @@ tests/                           Unit tests, integración y pruebas de la base (
 
 ## Variables de entorno
 
-Ver `.env.example`. Solo se usan claves **públicas** (`NEXT_PUBLIC_*`); la `service_role` no se necesita ni debe agregarse.
+Ver `.env.example`. Las `NEXT_PUBLIC_*` son públicas. `SUPABASE_SERVICE_ROLE_KEY` es **solo de servidor**: la usa únicamente `src/lib/supabase-admin.ts` (marcado `server-only`, el build falla si un componente de cliente lo importa) para gestionar las cuentas del personal, siempre después de verificar que quien llama es admin. Nunca le pongas prefijo `NEXT_PUBLIC_`.

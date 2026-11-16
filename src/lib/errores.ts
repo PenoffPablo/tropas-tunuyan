@@ -7,7 +7,8 @@ export type CodigoError =
   | 'TURNO_YA_ABIERTO'
   | 'PIN_INVALIDO'
   | 'PIN_BLOQUEADO'
-  | 'CREDENCIAL_REQUERIDA';
+  | 'CREDENCIAL_REQUERIDA'
+  | 'SIN_EMPLEADO';
 
 export class ErrorOperacion extends Error {
   readonly codigo: CodigoError | null;

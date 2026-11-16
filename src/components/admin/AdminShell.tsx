@@ -9,6 +9,7 @@ import Icon, { type NombreIcono } from '@/components/ui/Icon';
 import Spinner from '@/components/ui/Spinner';
 import { getSupabaseBrowser } from '@/lib/supabase';
 import { TIENDA } from '@/lib/config';
+import { etiquetaCuenta } from '@/lib/acceso';
 import { cn } from '@/lib/utils';
 import { useSubmitLock } from '@/hooks/useSubmitLock';
 
@@ -26,6 +27,7 @@ export default function AdminShell({ rol, email, children }: { rol: RolUsuario; 
   const router = useRouter();
   const { isSubmitting: saliendo, run } = useSubmitLock();
   const items = NAV.filter((i) => !i.soloAdmin || rol === 'admin');
+  const cuenta = etiquetaCuenta(email);
   const activo = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
   const salir = () =>
@@ -87,10 +89,10 @@ export default function AdminShell({ rol, email, children }: { rol: RolUsuario; 
                 rol === 'admin' ? 'bg-militar-500/15 text-militar-700 dark:text-militar-300' : 'bg-sky-500/15 text-sky-700 dark:text-sky-300'
               )}
             >
-              {(email[0] ?? '?').toUpperCase()}
+              {(cuenta[0] ?? '?').toUpperCase()}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-xs font-semibold text-slate-800 dark:text-slate-200">{email || 'Usuario'}</span>
+              <span className="block truncate text-xs font-semibold text-slate-800 dark:text-slate-200">{cuenta || 'Usuario'}</span>
               <span className="block font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">{rol === 'admin' ? 'Administrador' : 'Vendedor'}</span>
             </span>
             <ThemeToggle />

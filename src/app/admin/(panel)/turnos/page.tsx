@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { createSupabaseServer } from '@/lib/supabase-server';
+import { exigirAdminPanel } from '@/lib/auth';
 import { COLUMNAS_EMPLEADO } from '@/lib/supabase';
 import { comoFila, comoFilas } from '@/lib/datos';
 import type { Empleado, TurnoCaja } from '@/types/database';
@@ -9,6 +10,7 @@ export const metadata: Metadata = { title: 'Turnos & personal' };
 export const dynamic = 'force-dynamic';
 
 export default async function AdminTurnosPage() {
+  exigirAdminPanel();
   const supabase = createSupabaseServer();
   const [emp, tur, abierto] = await Promise.all([
     supabase.from('empleados').select(COLUMNAS_EMPLEADO).order('activo', { ascending: false }).order('nombre'),

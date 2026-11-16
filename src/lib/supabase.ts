@@ -49,4 +49,4 @@ export const COLUMNAS_PRODUCTO_PUBLICO =
   'id, nombre, descripcion, precio, exige_credencial, categoria_id, imagen_url, activo, created_at, updated_at';
 
 /** Columnas de empleados legibles por el panel (nunca el hash del PIN). */
-export const COLUMNAS_EMPLEADO = 'id, nombre, puesto, telefono, activo, fecha_alta, created_at, updated_at';
+export const COLUMNAS_EMPLEADO = 'id, nombre, puesto, telefono, activo, usuario, user_id, fecha_alta, created_at, updated_at';

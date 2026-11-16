@@ -41,6 +41,9 @@ test('migraciones 05 + 06: costos solo para el admin en una base ya desplegada',
   const VEND = { sub: '22222222-2222-2222-2222-222222222222', app_metadata: { rol: 'vendedor' } };
   const ADMIN = { sub: '11111111-1111-1111-1111-111111111111', app_metadata: { rol: 'admin' } };
   const SIN_ROL = { sub: '33333333-3333-3333-3333-333333333333' };
+  // Desde la migración 07 el vendedor necesita un empleado activo vinculado.
+  await db.query(`insert into auth.users (id) values ($1)`, [VEND.sub]);
+  await db.query(`insert into empleados (nombre, pin_hash, user_id, usuario) values ('Vend', 'x', $1, 'vend')`, [VEND.sub]);
 
   assert.equal((await como(VEND, `select id, precio from productos`)).length, 6);
   await assert.rejects(como(VEND, `select costo from productos`), /permission denied/);

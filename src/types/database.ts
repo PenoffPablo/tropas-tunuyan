@@ -98,6 +98,10 @@ export type Empleado = {
   puesto: string;
   telefono: string | null;
   activo: boolean;
+  /** Nombre de login (p. ej. "juan.perez"); null si todavía no tiene acceso. */
+  usuario: string | null;
+  /** Cuenta de Supabase Auth vinculada; null si todavía no tiene acceso. */
+  user_id: string | null;
   fecha_alta: string;
   created_at: string;
   updated_at: string;
@@ -374,6 +378,22 @@ export type Database = {
         Returns: string;
       };
       eliminar_empleado: { Args: { p_id: string }; Returns: string };
+      alta_empleado_con_acceso: {
+        Args: {
+          p_nombre: string;
+          p_puesto: string;
+          p_telefono: string | null;
+          p_pin: string;
+          p_user_id: string;
+          p_usuario: string;
+        };
+        Returns: string;
+      };
+      vincular_acceso_empleado: {
+        Args: { p_empleado_id: string; p_user_id: string; p_usuario: string };
+        Returns: undefined;
+      };
+      abrir_mi_turno: { Args: { p_monto_apertura: number; p_caja?: string }; Returns: TurnoCaja };
       abrir_turno: {
         Args: { p_empleado_id: string; p_pin: string; p_monto_apertura: number; p_caja?: string };
         Returns: TurnoCaja;

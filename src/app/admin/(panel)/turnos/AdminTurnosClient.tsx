@@ -8,12 +8,13 @@ import Icon from '@/components/ui/Icon';
 import EmptyState from '@/components/ui/EmptyState';
 import { useToast } from '@/components/ui/Toast';
 import { copiarAlPortapapeles, etiquetaDesvio, textoActaTurno } from '@/lib/finanzas';
-import { eliminarEmpleado } from '@/lib/empleados';
+import { darDeBajaEmpleado } from '@/lib/personal-acciones';
 import { cn, formatDesvio, formatFechaHora, formatPrecio, mensajeError } from '@/lib/utils';
 
 const ModalEmpleado = dynamic(() => import('@/components/admin/ModalEmpleado'), { ssr: false });
 const ModalAperturaTurno = dynamic(() => import('@/components/admin/ModalAperturaTurno'), { ssr: false });
 const ModalArqueoCiego = dynamic(() => import('@/components/admin/ModalArqueoCiego'), { ssr: false });
+const ModalAccesoEmpleado = dynamic(() => import('@/components/admin/ModalAccesoEmpleado'), { ssr: false });
 
 type Props = { empleados: Empleado[]; turnos: TurnoCaja[]; turnoAbierto: TurnoCaja | null };
 
@@ -24,17 +25,26 @@ export default function AdminTurnosClient({ empleados, turnos, turnoAbierto: abi
   const [turnoAbierto, setTurnoAbierto] = useState(abiertoServidor);
   const [modal, setModal] = useState<'empleado' | 'apertura' | 'arqueo' | null>(null);
   const [editando, setEditando] = useState<Empleado | null>(null);
+  const [acceso, setAcceso] = useState<{ empleado: Empleado; modo: 'crear' | 'resetear' } | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
 
   useEffect(() => setTurnoAbierto(abiertoServidor), [abiertoServidor]);
 
   const baja = async (e: Empleado) => {
     if (ocupado) return;
-    if (!window.confirm(`¿Dar de baja a ${e.nombre}? Si tiene historial se desactiva (auditoría); si no, se elimina.`)) return;
+    const aviso = e.user_id
+      ? `¿Dar de baja a ${e.nombre}? Se desactiva y su usuario "${e.usuario}" queda bloqueado (se conserva el historial).`
+      : `¿Dar de baja a ${e.nombre}? Si tiene historial se desactiva (auditoría); si no, se elimina.`;
+    if (!window.confirm(aviso)) return;
     setOcupado(e.id);
     try {
-      const r = await eliminarEmpleado(e.id);
-      toast(r === 'eliminado' ? `${e.nombre} eliminado` : `${e.nombre} desactivado (conserva historial)`);
+      const r = await darDeBajaEmpleado(e.id);
+      if (!r.ok) {
+        toast(r.error, 'error');
+        return;
+      }
+      if (r.datos.aviso) toast(r.datos.aviso, 'alerta');
+      else toast(r.datos.resultado === 'eliminado' ? `${e.nombre} eliminado` : `${e.nombre} desactivado${e.user_id ? ' y acceso bloqueado' : ' (conserva historial)'}`);
       router.refresh();
     } catch (err) {
       toast(mensajeError(err), 'error');
@@ -101,7 +111,7 @@ export default function AdminTurnosClient({ empleados, turnos, turnoAbierto: abi
 
       {pestana === 'personal' ? (
         empleados.length === 0 ? (
-          <EmptyState icono="users" titulo="Sin personal cargado" descripcion="Dá de alta a los cajeros con su PIN para que puedan abrir turnos." />
+          <EmptyState icono="users" titulo="Sin personal cargado" descripcion="Dá de alta a cada vendedor: se le crea un usuario para iniciar sesión y abrir su turno." />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {empleados.map((e) => (
@@ -112,9 +122,27 @@ export default function AdminTurnosClient({ empleados, turnos, turnoAbierto: abi
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-semibold text-slate-900 dark:text-white">{e.nombre}</div>
                   <div className="truncate text-xs text-slate-500">{e.puesto}{e.telefono ? ` · ${e.telefono}` : ''}</div>
-                  <span className={cn('badge mt-1', e.activo ? 'border-emerald-500/30 text-emerald-700 dark:text-emerald-300' : 'border-slate-300 text-slate-500 dark:border-white/15')}>
-                    {e.activo ? 'Activo' : 'Inactivo'}
-                  </span>
+                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                    <span className={cn('badge', e.activo ? 'border-emerald-500/30 text-emerald-700 dark:text-emerald-300' : 'border-slate-300 text-slate-500 dark:border-white/15')}>
+                      {e.activo ? 'Activo' : 'Inactivo'}
+                    </span>
+                    {e.user_id ? (
+                      <span className="badge border-sky-500/30 font-mono normal-case text-sky-700 dark:text-sky-300" title="Usuario para iniciar sesión">
+                        {e.usuario}
+                      </span>
+                    ) : (
+                      <span className="badge border-amber-500/30 text-amber-700 dark:text-amber-300">Sin acceso</span>
+                    )}
+                  </div>
+                  {e.activo && (
+                    <button
+                      type="button"
+                      onClick={() => setAcceso({ empleado: e, modo: e.user_id ? 'resetear' : 'crear' })}
+                      className="mt-1.5 text-xs font-semibold text-militar-700 hover:underline dark:text-militar-400"
+                    >
+                      {e.user_id ? 'Resetear contraseña' : 'Crear acceso'}
+                    </button>
+                  )}
                 </div>
                 <button type="button" onClick={() => { setEditando(e); setModal('empleado'); }} className="btn-ghost btn-icon h-8 w-8" aria-label={`Editar ${e.nombre}`}>
                   <Icon name="edit" size={14} />
@@ -208,9 +236,27 @@ export default function AdminTurnosClient({ empleados, turnos, turnoAbierto: abi
         <ModalEmpleado
           abierto
           empleado={editando}
-          onClose={() => setModal(null)}
-          onGuardado={(m) => {
+          onClose={() => {
             setModal(null);
+            router.refresh();
+          }}
+          onGuardado={(m, tono) => {
+            setModal(null);
+            toast(m, tono);
+            router.refresh();
+          }}
+        />
+      )}
+      {acceso && (
+        <ModalAccesoEmpleado
+          empleado={acceso.empleado}
+          modo={acceso.modo}
+          onClose={() => {
+            setAcceso(null);
+            router.refresh();
+          }}
+          onListo={(m) => {
+            setAcceso(null);
             toast(m);
             router.refresh();
           }}
@@ -219,6 +265,7 @@ export default function AdminTurnosClient({ empleados, turnos, turnoAbierto: abi
       {modal === 'apertura' && (
         <ModalAperturaTurno
           abierto
+          rol="admin"
           empleados={empleados}
           onClose={() => setModal(null)}
           onTurnoAbierto={(t) => {

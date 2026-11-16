@@ -43,10 +43,14 @@ before(async () => {
   await raiz.query(leer('tests/db/supabase_stub.sql'));
   await raiz.query(leer('database/schema.sql'));
   await raiz.query(leer('database/seed.sql'));
+  await raiz.query(`insert into auth.users (id) values ($1)`, [JSON.parse(VEND).sub]);
   const admin = await conexion(ADMIN);
-  empleado = (await admin.query(`select guardar_empleado(null, 'Caja Test', 'Vendedor', null, true, '1234') as id`)).rows[0].id;
+  empleado = (await admin.query(
+    `select alta_empleado_con_acceso('Caja Test', 'Vendedor', null, '1234', $1, 'caja.test') as id`,
+    [JSON.parse(VEND).sub]
+  )).rows[0].id;
   const vend = await conexion(VEND);
-  turno = (await vend.query(`select id from abrir_turno($1, '1234', 0)`, [empleado])).rows[0].id;
+  turno = (await vend.query(`select id from abrir_mi_turno(0)`)).rows[0].id;
 }, { timeout: 180_000 });
 
 after(async () => {

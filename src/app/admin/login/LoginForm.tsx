@@ -5,17 +5,19 @@ import { useRouter } from 'next/navigation';
 import Icon from '@/components/ui/Icon';
 import Spinner from '@/components/ui/Spinner';
 import { getSupabaseBrowser } from '@/lib/supabase';
-import { destinoSeguro, esRolValido } from '@/lib/auth-shared';
+import { RUTA_CAMBIAR_PASSWORD, destinoSeguro, esRolValido } from '@/lib/auth-shared';
+import { emailDeLogin } from '@/lib/acceso';
 import { useSubmitLock } from '@/hooks/useSubmitLock';
 
 const ERRORES: Record<string, string> = {
   'sin-rol': 'Tu usuario no tiene un rol asignado en el panel. Contactá al administrador.',
+  bloqueado: 'Tu acceso está deshabilitado. Contactá al administrador.',
 };
 
 export default function LoginForm({ next, errorInicial }: { next: string | null; errorInicial: string | null }) {
   const router = useRouter();
   const { isSubmitting, run } = useSubmitLock();
-  const [email, setEmail] = useState('');
+  const [cuenta, setCuenta] = useState('');
   const [password, setPassword] = useState('');
   const [verPassword, setVerPassword] = useState(false);
   const [error, setError] = useState<string | null>(errorInicial ? ERRORES[errorInicial] ?? null : null);
@@ -25,12 +27,15 @@ export default function LoginForm({ next, errorInicial }: { next: string | null;
     void run(async () => {
       setError(null);
       const supabase = getSupabaseBrowser();
-      const { data, error: err } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      // Sin "@" es un usuario del personal → email interno de su cuenta.
+      const { data, error: err } = await supabase.auth.signInWithPassword({ email: emailDeLogin(cuenta), password });
       if (err || !data.user) {
         setError(
           err?.status === 429
             ? 'Demasiados intentos. Esperá unos minutos antes de reintentar.'
-            : 'Credenciales inválidas. Verificá tu correo y contraseña.'
+            : err?.code === 'user_banned'
+              ? ERRORES.bloqueado
+              : 'Credenciales inválidas. Verificá tu usuario y contraseña.'
         );
         setPassword('');
         return;
@@ -41,7 +46,7 @@ export default function LoginForm({ next, errorInicial }: { next: string | null;
         setError(ERRORES['sin-rol']);
         return;
       }
-      router.replace(destinoSeguro(next, rol));
+      router.replace(data.user.app_metadata?.debe_cambiar_password === true ? RUTA_CAMBIAR_PASSWORD : destinoSeguro(next, rol));
       router.refresh();
     });
   };
@@ -56,19 +61,21 @@ export default function LoginForm({ next, errorInicial }: { next: string | null;
       )}
 
       <div>
-        <label htmlFor="email" className="label">Correo electrónico</label>
+        <label htmlFor="cuenta" className="label">Usuario o correo</label>
         <div className="relative">
-          <Icon name="mail" size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Icon name="users" size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
-            id="email"
-            type="email"
+            id="cuenta"
+            type="text"
             required
             autoComplete="username"
-            inputMode="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            value={cuenta}
+            onChange={(e) => setCuenta(e.target.value)}
             className="input h-11 pl-9"
-            placeholder="nombre@tropastunuyan.com"
+            placeholder="juan.perez"
             data-autofocus
           />
         </div>
@@ -99,7 +106,7 @@ export default function LoginForm({ next, errorInicial }: { next: string | null;
         </div>
       </div>
 
-      <button type="submit" disabled={isSubmitting || !email || !password} className="btn-primary btn-lg w-full">
+      <button type="submit" disabled={isSubmitting || !cuenta.trim() || !password} className="btn-primary btn-lg w-full">
         {isSubmitting ? <Spinner /> : <Icon name="login" size={16} />}
         {isSubmitting ? 'Verificando…' : 'Ingresar al panel'}
       </button>

@@ -8,6 +8,7 @@ import type {
   CredencialVenta,
   Empleado,
   ProductoConVariantes,
+  RolUsuario,
   TurnoCaja,
   Variante,
   VentaConDetalles,
@@ -45,7 +46,9 @@ type Props = {
   productos: ProductoConVariantes[];
   categorias: Categoria[];
   turnoInicial: TurnoCaja | null;
+  /** Admin: todo el personal activo. Vendedor: solo su propio registro (RLS). */
   empleados: Empleado[];
+  rol: RolUsuario;
 };
 
 type ModalActivo = 'variante' | 'credencial' | 'cobro' | 'apertura' | 'arqueo' | 'ticket' | null;
@@ -74,7 +77,7 @@ function normalizar(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 }
 
-export default function AdminPosClient({ productos: productosServidor, categorias, turnoInicial, empleados }: Props) {
+export default function AdminPosClient({ productos: productosServidor, categorias, turnoInicial, empleados, rol }: Props) {
   const router = useRouter();
   const toast = useToast();
 
@@ -397,7 +400,7 @@ export default function AdminPosClient({ productos: productosServidor, categoria
       {!turno && (
         <div className="flex items-center gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/[0.07] px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
           <Icon name="alert" size={17} className="shrink-0" />
-          La caja está cerrada. Podés armar el carrito, pero para cobrar hay que abrir un turno con PIN.
+          La caja está cerrada. Podés armar el carrito, pero para cobrar hay que abrir un turno.
         </div>
       )}
 
@@ -665,6 +668,7 @@ export default function AdminPosClient({ productos: productosServidor, categoria
       <ModalAperturaTurno
         abierto={modal === 'apertura'}
         onClose={() => setModal(null)}
+        rol={rol}
         empleados={empleados}
         onTurnoAbierto={(t) => {
           setTurno(t);

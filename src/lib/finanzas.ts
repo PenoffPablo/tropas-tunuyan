@@ -56,6 +56,16 @@ export async function procesarVentaPos(params: {
   return venta;
 }
 
+/** Apertura del propio turno: el empleado lo determina la base a partir de la sesión. */
+export async function abrirMiTurno(montoApertura: number): Promise<TurnoCaja> {
+  const { data, error } = await getSupabaseBrowser().rpc('abrir_mi_turno', {
+    p_monto_apertura: roundCurrency(montoApertura),
+  });
+  if (error) throw errorDesdePostgrest(error);
+  return data;
+}
+
+/** Apertura a nombre de otro empleado (solo administrador, firma con el PIN del empleado). */
 export async function abrirTurno(empleadoId: string, pin: string, montoApertura: number): Promise<TurnoCaja> {
   const { data, error } = await getSupabaseBrowser().rpc('abrir_turno', {
     p_empleado_id: empleadoId,

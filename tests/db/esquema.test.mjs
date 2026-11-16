@@ -16,6 +16,8 @@ const leer = (ruta) => readFileSync(new URL(ruta, raiz), 'utf8');
 const ADMIN = { sub: '11111111-1111-1111-1111-111111111111', app_metadata: { rol: 'admin' } };
 const VEND = { sub: '22222222-2222-2222-2222-222222222222', app_metadata: { rol: 'vendedor' } };
 const SIN_ROL = { sub: '33333333-3333-3333-3333-333333333333' };
+const VEND2 = { sub: '44444444-4444-4444-4444-444444444444', app_metadata: { rol: 'vendedor' } };
+const VEND_SUELTO = { sub: '55555555-5555-5555-5555-555555555555', app_metadata: { rol: 'vendedor' } };
 
 let db;
 
@@ -42,6 +44,8 @@ before(async () => {
   db = new PGlite({ extensions: { pgcrypto, pg_trgm, unaccent } });
   await db.exec(leer('tests/db/supabase_stub.sql'));
   await db.exec(leer('database/schema.sql'));
+  // Cuentas de Auth (en Supabase las crea auth.admin.createUser).
+  await db.query(`insert into auth.users (id) values ($1), ($2), ($3), ($4)`, [ADMIN.sub, VEND.sub, VEND2.sub, VEND_SUELTO.sub]);
 });
 
 test('admin: categorías con slug automático y único', async () => {
@@ -124,7 +128,8 @@ test('usuario sin rol: no modifica ni gestiona personal', async () => {
 
 test('empleados: PIN bcrypt invisible, bloqueo tras 5 intentos', async () => {
   await como(ADMIN, async () => {
-    kevin = (await uno(`select guardar_empleado(null, 'Kevin', 'Líder', null, true, '1234') as id`)).id;
+    // Alta con acceso: el vendedor VEND queda vinculado a Kevin.
+    kevin = (await uno(`select alta_empleado_con_acceso('Kevin', 'Líder', null, '1234', $1, 'kevin') as id`, [VEND.sub])).id;
     await falla(q(`select guardar_empleado(null, 'Juan', 'x', null, true, '12')`), /PIN/);
     await falla(q(`select pin_hash from empleados`), /permission denied/);
   });
@@ -156,11 +161,65 @@ test('auditoría: modificar un producto guarda antes y después', async () => {
   });
 });
 
-test('turnos: uno abierto por caja y PIN obligatorio', async () => {
+test('turnos: el vendedor abre el suyo por sesión; a nombre de otro solo el admin con PIN', async () => {
   await como(VEND, async () => {
-    turno = (await uno(`select id from abrir_turno($1, '1234', 10000)`, [kevin])).id;
+    // Con PIN a nombre de alguien: solo admin.
+    await falla(q(`select abrir_turno($1, '1234', 100)`, [kevin]), /administrador/);
+    const t = await uno(`select * from abrir_mi_turno(10000)`);
+    turno = t.id;
+    assert.equal(t.empleado_id, kevin, 'el empleado sale de la sesión');
+    assert.equal(t.abierto_por, VEND.sub);
+    await falla(q(`select abrir_mi_turno(100)`), /turno abierto/);
+  });
+  await como(ADMIN, async () => {
     await falla(q(`select abrir_turno($1, '1234', 100)`, [kevin]), /turno abierto/);
     await falla(q(`select abrir_turno($1, '0000', 100, 'caja2')`, [kevin]), /PIN incorrecto/);
+    await falla(q(`select abrir_mi_turno(100, 'caja2')`), /no está vinculado/);
+  });
+});
+
+test('acceso: cada vendedor ve y opera solo lo suyo; inactivo o sin vínculo no es staff', async () => {
+  let ana;
+  await como(ADMIN, async () => {
+    ana = (await uno(`select alta_empleado_con_acceso('Ana Pérez', 'Vendedora', null, '4826', $1, 'ana.perez') as id`, [VEND2.sub])).id;
+    await falla(q(`select alta_empleado_con_acceso('Otra', 'x', null, '4826', $1, 'ana.perez')`, [VEND_SUELTO.sub]), /ya está en uso/);
+    await falla(q(`select alta_empleado_con_acceso('Otra', 'x', null, '4826', $1, 'Mal Usuario')`, [VEND_SUELTO.sub]), /Usuario inválido/);
+    await falla(q(`select vincular_acceso_empleado($1, $2, 'otro')`, [ana, VEND_SUELTO.sub]), /ya tiene acceso/);
+    // El alta fallida no dejó empleados a medias.
+    assert.equal((await uno(`select count(*)::int as n from empleados where nombre = 'Otra'`)).n, 0);
+    assert.equal((await q(`select id from empleados`)).length, 2);
+  });
+  await como(VEND2, async () => {
+    const yo = await q(`select id, usuario from empleados`);
+    assert.deepEqual(yo.map((e) => e.usuario), ['ana.perez'], 'solo ve su propio registro');
+    assert.equal((await q(`select id from turnos_caja`)).length, 0, 'no ve turnos ajenos');
+    await falla(q(`select * from cerrar_turno_ciego($1, 0)`, [turno]), /inexistente/);
+    await falla(venta([{ variante_id: varM, cantidad: 1 }]), /no está abierto/);
+    await falla(q(`select * from verificar_credencial_empleado($1, '1234')`, [kevin]), /propio PIN/);
+    await falla(q(`select guardar_empleado(null, 'Intruso', 'x', null, true, '1234')`), /administrador/);
+    await falla(q(`select abrir_mi_turno(0)`), /turno abierto/);
+  });
+  await como(VEND, async () => {
+    assert.equal((await q(`select id from turnos_caja`)).length, 1);
+  });
+  // Con la contraseña inicial pendiente de cambio tampoco opera (aunque llame a la API directo).
+  await como({ ...VEND, app_metadata: { rol: 'vendedor', debe_cambiar_password: true } }, async () => {
+    assert.equal((await q(`select id from turnos_caja`)).length, 0);
+    assert.equal((await q(`select id from productos`)).length, 0);
+  });
+  // Vendedor con rol pero sin empleado vinculado: no es staff.
+  await como(VEND_SUELTO, async () => {
+    assert.equal((await q(`select id from productos`)).length, 0);
+    await falla(q(`select abrir_mi_turno(0, 'caja3')`), /No autorizado/);
+  });
+  // Baja: un empleado con acceso se desactiva (no se borra) y pierde el acceso a los datos.
+  await como(ADMIN, async () => {
+    assert.equal((await uno(`select eliminar_empleado($1) as r`, [ana])).r, 'desactivado');
+  });
+  await como(VEND2, async () => {
+    assert.equal((await q(`select id from productos`)).length, 0);
+    assert.equal((await q(`select id from empleados`)).length, 0);
+    await falla(q(`select abrir_mi_turno(0, 'caja3')`), /No autorizado/);
   });
 });
 

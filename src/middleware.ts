@@ -6,13 +6,24 @@
  * · Valida la sesión con supabase.auth.getUser() (verifica el JWT contra Supabase
  *   Auth; no confía en la cookie a ciegas) y refresca los tokens vencidos.
  * · Aplica permisos por rol: el vendedor solo opera el POS.
+ * · Cuentas bloqueadas (empleado dado de baja) se tratan como sin sesión.
+ * · Si app_metadata.debe_cambiar_password está activo, la única ruta
+ *   disponible es /admin/cambiar-password.
  * · Reenvía rol/email a los Server Components en cabeceras internas que
  *   sobrescribe siempre (no se pueden falsificar desde el cliente).
  */
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import type { Database } from '@/types/database';
-import { HEADER_EMAIL, HEADER_ROL, destinoSeguro, esRolValido, esRutaSoloAdmin } from '@/lib/auth-shared';
+import {
+  HEADER_EMAIL,
+  HEADER_ROL,
+  RUTA_CAMBIAR_PASSWORD,
+  destinoSeguro,
+  esRolValido,
+  esRutaSoloAdmin,
+  rutaInicialPorRol,
+} from '@/lib/auth-shared';
 
 type CookiePendiente = { name: string; value: string; options: CookieOptions };
 
@@ -50,6 +61,8 @@ export async function middleware(request: NextRequest) {
 
   const rol = user?.app_metadata?.rol;
   const rolValido = esRolValido(rol) ? rol : null;
+  const bloqueado = !!user?.banned_until && new Date(user.banned_until).getTime() > Date.now();
+  const debeCambiarPassword = user?.app_metadata?.debe_cambiar_password === true;
 
   const conCookies = (res: NextResponse) => {
     pendientes.forEach(({ name, value, options }) => res.cookies.set(name, value, options));
@@ -57,8 +70,8 @@ export async function middleware(request: NextRequest) {
     return res;
   };
 
-  // ── Sin sesión válida (o usuario sin rol asignado) ──
-  if (!user || !rolValido) {
+  // ── Sin sesión válida (usuario sin rol asignado o cuenta bloqueada) ──
+  if (!user || !rolValido || bloqueado) {
     if (esApi) {
       return conCookies(NextResponse.json({ error: 'No autenticado' }, { status: 401 }));
     }
@@ -72,28 +85,34 @@ export async function middleware(request: NextRequest) {
     destino.pathname = '/admin/login';
     destino.search = '';
     destino.searchParams.set('next', pathname + search);
-    if (user && !rolValido) destino.searchParams.set('error', 'sin-rol');
+    if (user && bloqueado) destino.searchParams.set('error', 'bloqueado');
+    else if (user && !rolValido) destino.searchParams.set('error', 'sin-rol');
     return conCookies(NextResponse.redirect(destino));
   }
 
-  // ── Con sesión ──
-  if (esLogin) {
+  const redirigir = (ruta: string) => {
     const destino = request.nextUrl.clone();
-    destino.pathname = destinoSeguro(request.nextUrl.searchParams.get('next'), rolValido);
+    destino.pathname = ruta;
     destino.search = '';
     return conCookies(NextResponse.redirect(destino));
+  };
+  const esCambioPassword = pathname === RUTA_CAMBIAR_PASSWORD;
+
+  // ── Contraseña inicial pendiente de cambio: no se puede usar nada más ──
+  if (debeCambiarPassword && !esCambioPassword) {
+    if (esApi) return conCookies(NextResponse.json({ error: 'Debés cambiar tu contraseña' }, { status: 403 }));
+    return redirigir(RUTA_CAMBIAR_PASSWORD);
   }
+  if (!debeCambiarPassword && esCambioPassword) return redirigir(rutaInicialPorRol(rolValido));
+
+  // ── Con sesión ──
+  if (esLogin) return redirigir(destinoSeguro(request.nextUrl.searchParams.get('next'), rolValido));
 
   if (esApi && rolValido !== 'admin') {
     return conCookies(NextResponse.json({ error: 'Permisos insuficientes' }, { status: 403 }));
   }
 
-  if (rolValido === 'vendedor' && esRutaSoloAdmin(pathname)) {
-    const destino = request.nextUrl.clone();
-    destino.pathname = '/admin/pos';
-    destino.search = '';
-    return conCookies(NextResponse.redirect(destino));
-  }
+  if (rolValido === 'vendedor' && esRutaSoloAdmin(pathname)) return redirigir('/admin/pos');
 
   const headersPanel = new Headers(request.headers);
   headersPanel.set(HEADER_ROL, rolValido);

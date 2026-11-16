@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { createSupabaseServer } from '@/lib/supabase-server';
+import { exigirAdminPanel } from '@/lib/auth';
 import { comoFilas, conCostos } from '@/lib/datos';
 import {
   COLUMNAS_PRODUCTO_PANEL,
@@ -14,6 +15,7 @@ export const metadata: Metadata = { title: 'Inventario' };
 export const dynamic = 'force-dynamic';
 
 export default async function AdminInventarioPage() {
+  exigirAdminPanel();
   const supabase = createSupabaseServer();
   const [prod, cat, costos] = await Promise.all([
     supabase

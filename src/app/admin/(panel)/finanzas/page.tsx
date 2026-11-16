@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { createSupabaseServer } from '@/lib/supabase-server';
+import { exigirAdminPanel } from '@/lib/auth';
 import { comoFila, comoFilas } from '@/lib/datos';
 import type { MovimientoCaja, RankingProducto, TurnoCaja } from '@/types/database';
 import AdminFinanzasClient, { type Periodo } from './AdminFinanzasClient';
@@ -25,6 +26,7 @@ function desdePeriodo(periodo: Periodo): string | null {
 }
 
 export default async function AdminFinanzasPage({ searchParams }: { searchParams: { periodo?: string } }) {
+  exigirAdminPanel();
   const periodo: Periodo = PERIODOS.includes(searchParams.periodo as Periodo) ? (searchParams.periodo as Periodo) : 'mes';
   const desde = desdePeriodo(periodo);
   const supabase = createSupabaseServer();

@@ -9,7 +9,9 @@
 --   · anon           → solo lectura del catálogo público (sin costos ni márgenes).
 --   · authenticated  → acceso según rol en auth.users.raw_app_meta_data->>'rol':
 --                        'admin'    → todo el panel.
---                        'vendedor' → POS, turnos y arqueos.
+--                        'vendedor' → POS y SUS turnos/ventas. Solo cuenta como
+--                                     staff si su cuenta está vinculada a un
+--                                     empleado activo (empleados.user_id).
 --   · Operaciones críticas (ventas, turnos, PIN, stock) SOLO vía funciones RPC
 --     transaccionales SECURITY DEFINER.
 --
@@ -20,11 +22,13 @@
 --   · movimientos_stock: libro de inventario (cada alta, venta y ajuste).
 --   · auditoria: historial de cambios del catálogo y del personal.
 --
--- Asignar rol a un usuario (como postgres en el SQL Editor):
+-- Asignar rol de ADMIN a un usuario (como postgres en el SQL Editor):
 --   update auth.users
 --      set raw_app_meta_data = coalesce(raw_app_meta_data,'{}'::jsonb) || '{"rol":"admin"}'
 --    where email = 'tu-correo@dominio.com';
 --   (el usuario debe volver a iniciar sesión para que el JWT incluya el rol)
+-- Los vendedores los crea el admin desde el panel (Turnos & personal): la app
+-- genera su cuenta de Auth con la service role y la vincula al empleado.
 -- ============================================================================
 
 create extension if not exists pgcrypto with schema extensions;
@@ -48,17 +52,13 @@ returns boolean language sql stable set search_path = '' as $$
   select private.rol_actual() = 'admin';
 $$;
 
-create or replace function private.es_staff()
-returns boolean language sql stable set search_path = '' as $$
-  select private.rol_actual() in ('admin', 'vendedor');
-$$;
+-- private.es_staff() y private.empleado_actual_id() se definen después de las
+-- tablas (consultan public.empleados).
 
 revoke all on function private.rol_actual() from public;
 revoke all on function private.es_admin() from public;
-revoke all on function private.es_staff() from public;
 grant execute on function private.rol_actual() to anon, authenticated;
 grant execute on function private.es_admin() to anon, authenticated;
-grant execute on function private.es_staff() to anon, authenticated;
 
 -- "Pantalón Táctico BDU" → "pantalon-tactico-bdu"
 create or replace function private.slugify(p_texto text)
@@ -164,6 +164,9 @@ create table public.empleados (
   pin_hash              text not null,
   pin_intentos_fallidos integer not null default 0,
   pin_bloqueado_hasta   timestamptz,
+  user_id               uuid unique references auth.users(id) on delete set null,  -- cuenta de login
+  usuario               text unique constraint empleados_usuario_valido
+                          check (usuario ~ '^[a-z0-9]+([._-][a-z0-9]+)*$' and char_length(usuario) between 3 and 40),
   fecha_alta            timestamptz not null default now(),
   created_at            timestamptz not null default now(),
   updated_at            timestamptz not null default now()
@@ -275,6 +278,30 @@ create table public.auditoria (
   actor       uuid default auth.uid(),
   created_at  timestamptz not null default now()
 );
+
+-- Empleado ACTIVO vinculado a la sesión (NULL si no hay). SECURITY DEFINER para
+-- que las políticas de empleados puedan usarla sin recursión de RLS.
+create or replace function private.empleado_actual_id()
+returns uuid language sql stable security definer set search_path = '' as $$
+  select e.id from public.empleados e where e.user_id = auth.uid() and e.activo;
+$$;
+
+-- Staff = admin, o vendedor con cuenta vinculada a un empleado activo.
+create or replace function private.es_staff()
+returns boolean language sql stable security definer set search_path = '' as $$
+  select case private.rol_actual()
+           when 'admin' then true
+           -- Con la contraseña inicial pendiente de cambio no opera (ni por API directa).
+           when 'vendedor' then private.empleado_actual_id() is not null
+                                and coalesce(auth.jwt() -> 'app_metadata' ->> 'debe_cambiar_password', '') <> 'true'
+           else false
+         end;
+$$;
+
+revoke all on function private.empleado_actual_id() from public;
+revoke all on function private.es_staff() from public;
+grant execute on function private.empleado_actual_id() to anon, authenticated;
+grant execute on function private.es_staff() to anon, authenticated;
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 3. ÍNDICES
@@ -395,7 +422,7 @@ grant select (id, producto_id, sku, codigo_barras, talle, color, precio, stock, 
   on public.variantes to authenticated;
 grant select (id, venta_id, producto_id, variante_id, nombre_producto, talle, color, precio_unitario, cantidad, subtotal, created_at)
   on public.venta_detalles to authenticated;
-grant select (id, nombre, puesto, telefono, activo, fecha_alta, created_at, updated_at) on public.empleados to authenticated;
+grant select (id, nombre, puesto, telefono, activo, usuario, user_id, fecha_alta, created_at, updated_at) on public.empleados to authenticated;
 grant select on public.turnos_caja, public.ventas, public.movimientos_stock, public.auditoria to authenticated;
 grant select, insert, delete on public.movimientos_caja to authenticated;
 
@@ -447,15 +474,20 @@ create policy variantes_admin_update on public.variantes
 create policy variantes_admin_delete on public.variantes
   for delete to authenticated using ((select private.es_admin()));
 
+-- El admin ve todo; el vendedor solo su registro, sus turnos y sus ventas.
 create policy empleados_lectura_staff on public.empleados
-  for select to authenticated using ((select private.es_staff()));
+  for select to authenticated
+  using ((select private.es_admin()) or ((select private.es_staff()) and user_id = (select auth.uid())));
 
 create policy turnos_lectura_staff on public.turnos_caja
-  for select to authenticated using ((select private.es_staff()));
+  for select to authenticated
+  using ((select private.es_admin()) or ((select private.es_staff()) and empleado_id = (select private.empleado_actual_id())));
 create policy ventas_lectura_staff on public.ventas
-  for select to authenticated using ((select private.es_staff()));
+  for select to authenticated
+  using ((select private.es_admin()) or ((select private.es_staff()) and empleado_id = (select private.empleado_actual_id())));
 create policy venta_detalles_lectura_staff on public.venta_detalles
-  for select to authenticated using ((select private.es_staff()));
+  for select to authenticated
+  using ((select private.es_admin()) or ((select private.es_staff()) and exists (select 1 from public.ventas v where v.id = venta_id)));
 
 -- Libro financiero exclusivo del admin; los movimientos de ventas no se borran a mano.
 create policy movimientos_lectura_admin on public.movimientos_caja
@@ -533,6 +565,9 @@ begin
   if not private.es_staff() then
     raise exception 'No autorizado' using errcode = '42501';
   end if;
+  if not private.es_admin() and p_empleado_id is distinct from private.empleado_actual_id() then
+    raise exception 'Solo podés validar tu propio PIN' using errcode = '42501';
+  end if;
   v_emp := private.validar_pin_empleado(p_empleado_id, p_pin);
   if v_emp.id is null then
     return;
@@ -592,7 +627,8 @@ begin
   if not private.es_admin() then
     raise exception 'Solo el administrador puede gestionar personal' using errcode = '42501';
   end if;
-  if exists (select 1 from public.turnos_caja where empleado_id = p_id)
+  if exists (select 1 from public.empleados where id = p_id and user_id is not null)
+     or exists (select 1 from public.turnos_caja where empleado_id = p_id)
      or exists (select 1 from public.ventas where empleado_id = p_id or credencial_verificada_por = p_id) then
     update public.empleados set activo = false where id = p_id;
     return 'desactivado';
@@ -609,8 +645,8 @@ declare
   v_turno public.turnos_caja;
   v_monto numeric(12, 2) := round(coalesce(p_monto_apertura, -1), 2);
 begin
-  if not private.es_staff() then
-    raise exception 'No autorizado' using errcode = '42501';
+  if not private.es_admin() then
+    raise exception 'Solo el administrador puede abrir un turno a nombre de otro empleado' using errcode = '42501';
   end if;
   if v_monto < 0 or v_monto > 100000000 then
     raise exception 'El fondo inicial debe ser un monto válido mayor o igual a 0';
@@ -652,7 +688,7 @@ begin
   end if;
   -- FOR UPDATE espera a las ventas en curso (que toman FOR SHARE).
   select * into v_turno from public.turnos_caja where id = p_turno_id for update;
-  if not found then
+  if not found or (not private.es_admin() and v_turno.empleado_id is distinct from private.empleado_actual_id()) then
     raise exception 'Turno inexistente';
   end if;
   if v_turno.estado <> 'abierto' then
@@ -708,6 +744,8 @@ declare
   v_verificador public.empleados;
   v_venta_id uuid;
   v_numero text;
+  v_es_admin boolean := private.es_admin();
+  v_mi_empleado uuid := private.empleado_actual_id();
 begin
   if not private.es_staff() then
     raise exception 'No autorizado' using errcode = '42501';
@@ -717,13 +755,15 @@ begin
   end if;
 
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_idempotency_key::text, 0));
-  select id into v_existente from public.ventas where idempotency_key = p_idempotency_key;
+  select id into v_existente from public.ventas
+   where idempotency_key = p_idempotency_key and (v_es_admin or empleado_id = v_mi_empleado);
   if found then
     return private.venta_json(v_existente) || jsonb_build_object('reintento', true);
   end if;
 
   select * into v_turno from public.turnos_caja where id = p_turno_id for share;
-  if not found or v_turno.estado <> 'abierto' then
+  if not found or v_turno.estado <> 'abierto'
+     or (not v_es_admin and v_turno.empleado_id is distinct from v_mi_empleado) then
     raise exception 'El turno de caja no está abierto. Abrí un turno para poder cobrar.' using hint = 'TURNO_CERRADO';
   end if;
 
@@ -812,7 +852,7 @@ begin
       raise exception 'Falta la declaración de verificación de credencial' using hint = 'CREDENCIAL_REQUERIDA';
     end if;
     if v_turno.empleado_id is null then
-      raise exception 'El turno no tiene un operador identificado. Reabrí el turno con PIN.' using hint = 'CREDENCIAL_REQUERIDA';
+      raise exception 'El turno no tiene un operador identificado. Reabrí el turno.' using hint = 'CREDENCIAL_REQUERIDA';
     end if;
     v_verificador := private.validar_pin_empleado(v_turno.empleado_id, p_credencial ->> 'pin_operador');
     if v_verificador.id is null then
@@ -985,6 +1025,82 @@ begin
 end;
 $$;
 
+create or replace function public.vincular_acceso_empleado(p_empleado_id uuid, p_user_id uuid, p_usuario text)
+returns void language plpgsql security definer set search_path = '' as $$
+declare
+  v_usuario text := lower(btrim(coalesce(p_usuario, '')));
+  v_emp public.empleados;
+begin
+  if not private.es_admin() then
+    raise exception 'Solo el administrador puede gestionar personal' using errcode = '42501';
+  end if;
+  if p_user_id is null then
+    raise exception 'Falta la cuenta de acceso';
+  end if;
+  if v_usuario !~ '^[a-z0-9]+([._-][a-z0-9]+)*$' or char_length(v_usuario) not between 3 and 40 then
+    raise exception 'Usuario inválido: de 3 a 40 caracteres, solo letras, números y . _ -' using hint = 'USUARIO_INVALIDO';
+  end if;
+  select * into v_emp from public.empleados where id = p_empleado_id for update;
+  if not found then
+    raise exception 'Empleado inexistente';
+  end if;
+  if v_emp.user_id is not null then
+    raise exception 'Este empleado ya tiene acceso' using hint = 'YA_TIENE_ACCESO';
+  end if;
+  if not v_emp.activo then
+    raise exception 'El empleado está inactivo: reactivalo antes de crearle acceso';
+  end if;
+  begin
+    update public.empleados set user_id = p_user_id, usuario = v_usuario where id = p_empleado_id;
+  exception when unique_violation then
+    raise exception 'El usuario "%" ya está en uso', v_usuario using hint = 'USUARIO_DUPLICADO';
+  end;
+end;
+$$;
+
+create or replace function public.alta_empleado_con_acceso(
+  p_nombre text, p_puesto text, p_telefono text, p_pin text, p_user_id uuid, p_usuario text
+)
+returns uuid language plpgsql security definer set search_path = '' as $$
+declare
+  v_id uuid;
+begin
+  v_id := public.guardar_empleado(null, p_nombre, p_puesto, p_telefono, true, p_pin);
+  perform public.vincular_acceso_empleado(v_id, p_user_id, p_usuario);
+  return v_id;
+end;
+$$;
+
+create or replace function public.abrir_mi_turno(p_monto_apertura numeric, p_caja text default 'principal')
+returns public.turnos_caja language plpgsql security definer set search_path = '' as $$
+declare
+  v_emp public.empleados;
+  v_turno public.turnos_caja;
+  v_monto numeric(12, 2) := round(coalesce(p_monto_apertura, -1), 2);
+begin
+  if not private.es_staff() then
+    raise exception 'No autorizado' using errcode = '42501';
+  end if;
+  select * into v_emp from public.empleados where user_id = auth.uid() and activo;
+  if not found then
+    raise exception 'Tu usuario no está vinculado a un empleado activo' using hint = 'SIN_EMPLEADO';
+  end if;
+  if v_monto < 0 or v_monto > 100000000 then
+    raise exception 'El fondo inicial debe ser un monto válido mayor o igual a 0';
+  end if;
+  begin
+    insert into public.turnos_caja (cajero_nombre, empleado_id, caja, monto_apertura, estado, abierto_por)
+    values (v_emp.nombre || ' (' || v_emp.puesto || ')', v_emp.id, coalesce(nullif(btrim(p_caja), ''), 'principal'),
+            v_monto, 'abierto', auth.uid())
+    returning * into v_turno;
+  exception when unique_violation then
+    raise exception 'Ya hay un turno abierto en esta caja. Debe cerrarlo quien lo abrió (o un administrador).'
+      using hint = 'TURNO_YA_ABIERTO';
+  end;
+  return v_turno;
+end;
+$$;
+
 revoke all on function public.verificar_credencial_empleado(uuid, text) from public, anon;
 revoke all on function public.guardar_empleado(uuid, text, text, text, boolean, text) from public, anon;
 revoke all on function public.eliminar_empleado(uuid) from public, anon;
@@ -995,7 +1111,13 @@ revoke all on function public.crear_producto(jsonb, jsonb) from public, anon;
 revoke all on function public.ajustar_stock(uuid, integer, text) from public, anon;
 revoke all on function public.ranking_productos(timestamptz) from public, anon;
 revoke all on function public.costos_catalogo() from public, anon;
+revoke all on function public.vincular_acceso_empleado(uuid, uuid, text) from public, anon;
+revoke all on function public.alta_empleado_con_acceso(text, text, text, text, uuid, text) from public, anon;
+revoke all on function public.abrir_mi_turno(numeric, text) from public, anon;
 
+grant execute on function public.vincular_acceso_empleado(uuid, uuid, text) to authenticated;
+grant execute on function public.alta_empleado_con_acceso(text, text, text, text, uuid, text) to authenticated;
+grant execute on function public.abrir_mi_turno(numeric, text) to authenticated;
 grant execute on function public.verificar_credencial_empleado(uuid, text) to authenticated;
 grant execute on function public.guardar_empleado(uuid, text, text, text, boolean, text) to authenticated;
 grant execute on function public.eliminar_empleado(uuid) to authenticated;

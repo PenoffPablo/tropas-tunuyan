@@ -2,6 +2,8 @@
  * Personal del mostrador. Los PIN se hashean con bcrypt en PostgreSQL
  * (guardar_empleado) y se validan con verificar_credencial_empleado
  * (SECURITY DEFINER): ningún PIN ni hash viaja jamás hacia el navegador.
+ * El alta, la edición y la baja pasan por Server Actions (personal-acciones.ts)
+ * porque también gestionan la cuenta de acceso del empleado.
  */
 import { getSupabaseBrowser } from './supabase';
 import { errorDesdePostgrest } from './errores';
@@ -21,30 +23,4 @@ export async function verificarCredencialEmpleado(empleadoId: string, pin: strin
   if (error) throw errorDesdePostgrest(error);
   const fila = Array.isArray(data) ? data[0] : null;
   return fila ?? null;
-}
-
-export async function guardarEmpleado(datos: {
-  id: string | null;
-  nombre: string;
-  puesto: string;
-  telefono: string;
-  activo: boolean;
-  pin: string | null;
-}): Promise<string> {
-  const { data, error } = await getSupabaseBrowser().rpc('guardar_empleado', {
-    p_id: datos.id,
-    p_nombre: datos.nombre.trim(),
-    p_puesto: datos.puesto.trim(),
-    p_telefono: datos.telefono.trim() || null,
-    p_activo: datos.activo,
-    p_pin: datos.pin,
-  });
-  if (error) throw errorDesdePostgrest(error);
-  return data;
-}
-
-export async function eliminarEmpleado(id: string): Promise<'eliminado' | 'desactivado'> {
-  const { data, error } = await getSupabaseBrowser().rpc('eliminar_empleado', { p_id: id });
-  if (error) throw errorDesdePostgrest(error);
-  return data === 'eliminado' ? 'eliminado' : 'desactivado';
 }

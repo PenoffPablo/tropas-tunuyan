@@ -10,12 +10,14 @@ import {
   type ProductoPanelSinCostos,
   type TurnoCaja,
 } from '@/types/database';
+import { leerSesionPanel } from '@/lib/auth';
 import AdminPosClient from './AdminPosClient';
 
 export const metadata: Metadata = { title: 'Punto de venta' };
 export const dynamic = 'force-dynamic';
 
 export default async function AdminPosPage() {
+  const rol = leerSesionPanel()?.rol ?? 'vendedor';
   const supabase = createSupabaseServer();
   const [prod, cat, turno, emp] = await Promise.all([
     supabase
@@ -39,6 +41,7 @@ export default async function AdminPosPage() {
       categorias={comoFilas<Categoria>(cat.data)}
       turnoInicial={comoFila<TurnoCaja>(turno.data)}
       empleados={comoFilas<Empleado>(emp.data)}
+      rol={rol}
     />
   );
 }

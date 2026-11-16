@@ -4,6 +4,9 @@ import type { RolUsuario } from '@/types/database';
 export const HEADER_ROL = 'x-tt-rol';
 export const HEADER_EMAIL = 'x-tt-email';
 
+/** Pantalla obligatoria tras el primer ingreso o un reseteo de contraseña. */
+export const RUTA_CAMBIAR_PASSWORD = '/admin/cambiar-password';
+
 export function esRolValido(rol: unknown): rol is RolUsuario {
   return rol === 'admin' || rol === 'vendedor';
 }
@@ -21,7 +24,7 @@ export function rutaInicialPorRol(rol: RolUsuario): string {
 
 /** Evita open-redirects: solo rutas internas del panel. */
 export function destinoSeguro(next: string | null | undefined, rol: RolUsuario): string {
-  if (next && /^\/admin(\/[\w-]*)*$/.test(next) && next !== '/admin/login') {
+  if (next && /^\/admin(\/[\w-]*)*$/.test(next) && next !== '/admin/login' && next !== RUTA_CAMBIAR_PASSWORD) {
     if (rol === 'vendedor' && esRutaSoloAdmin(next)) return '/admin/pos';
     return next;
   }
